@@ -1,0 +1,53 @@
+# Dependencies
+node_modules/
+frontend/node_modules/
+
+# Build output
+dist-electron/
+frontend/dist/
+frontend/node_modules/.vite/
+*.blockmap
+*.dmg
+*.AppImage
+*.deb
+*.rpm
+*.exe
+*.msi
+*.zip
+
+# Generated frontend files
+frontend/src/auto-imports.d.ts
+frontend/src/components.d.ts
+
+# Environment and local configuration
+.env
+.env.*
+!.env.example
+*.local
+.claude/settings.local.json
+
+# Runtime data and downloads
+application-state.json
+application-state.json.tmp
+BilibiliDown/
+BiliBiliDown/
+
+# Logs and test output
+*.log
+logs/
+coverage/
+.nyc_output/
+
+# Editor and OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
