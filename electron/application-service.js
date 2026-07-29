@@ -7,6 +7,8 @@ const path = require('path')
 const crypto = require('crypto')
 const { Readable } = require('stream')
 const { pipeline } = require('stream/promises')
+const { spawn } = require('child_process')
+const ffmpegStaticPath = require('ffmpeg-static')
 
 const BILIBILI_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -41,6 +43,11 @@ function parseCookiePair(value, cookies) {
   if (separator > 0) cookies[pair.slice(0, separator)] = pair.slice(separator + 1)
 }
 
+function resolveFfmpegPath() {
+  if (!ffmpegStaticPath) throw new Error('未找到 FFmpeg，可执行文件未正确安装')
+  return app.isPackaged ? ffmpegStaticPath.replace('app.asar', 'app.asar.unpacked') : ffmpegStaticPath
+}
+
 function serializeError(error) {
   return error instanceof Error ? error.message : String(error)
 }
@@ -59,8 +66,8 @@ class ApplicationService extends EventEmitter {
   initialize() {
     const dataDirectory = app.getPath('userData')
     const downloadDirectory = process.platform === 'win32'
-      ? path.join(process.env.USERPROFILE || app.getPath('home'), 'Downloads', 'BiliBiliDown')
-      : path.join(app.getPath('home'), 'Downloads', 'BilibiliDown')
+      ? path.join(process.env.USERPROFILE || app.getPath('home'), 'Downloads', 'BiliDownloader')
+      : path.join(app.getPath('home'), 'Downloads', 'BiliDownloader')
     this.statePath = path.join(dataDirectory, 'application-state.json')
     this.settings = {
       default_download_path: downloadDirectory,
@@ -83,8 +90,21 @@ class ApplicationService extends EventEmitter {
       if (error.code !== 'ENOENT') console.warn('读取应用状态失败:', error)
     }
 
+    this.removeExpiredTaskRecords()
     fs.mkdirSync(this.settings.default_download_path, { recursive: true })
     this.persist()
+  }
+
+  removeExpiredTaskRecords() {
+    const cutoff = Date.now() - 30 * 86400000
+    const before = this.tasks.length
+    this.tasks = this.tasks.filter(task => {
+      const timestamp = new Date(task.completed_at || task.created_at).getTime()
+      return !Number.isFinite(timestamp) || timestamp >= cutoff
+    })
+    const removed = before - this.tasks.length
+    if (removed) console.info(`已自动清理 ${removed} 条超过30天的任务记录`)
+    return removed
   }
 
   serializeCookies() {
@@ -144,7 +164,7 @@ class ApplicationService extends EventEmitter {
 
     const taskMatch = route.match(/^\/download\/task\/([^/]+)$/)
     if (taskMatch && normalizedMethod === 'GET') return this.getTask(taskMatch[1])
-    if (taskMatch && normalizedMethod === 'DELETE') return this.deleteTask(taskMatch[1])
+    if (taskMatch && normalizedMethod === 'DELETE') return this.deleteTask(taskMatch[1], params.delete_file)
 
     const actionMatch = route.match(/^\/download\/(pause|resume|cancel)\/([^/]+)$/)
     if (actionMatch && normalizedMethod === 'POST') return this.changeTask(actionMatch[2], actionMatch[1])
@@ -296,7 +316,9 @@ class ApplicationService extends EventEmitter {
       file_size: null, downloaded_size: 0, status: 'pending', progress: 0, speed: null,
       error_message: null, error_trace: null, created_at: now, updated_at: null,
       started_at: null, completed_at: null, cookies,
-      audio_quality: input.audio_quality, login_status: input.login_status || 0
+      audio_quality: input.audio_quality, login_status: input.login_status || 0,
+      auto_merge: input.auto_merge ?? this.settings.auto_merge,
+      delete_temp_files: input.delete_temp_files ?? this.settings.delete_temp_files
     }
     this.tasks.unshift(task)
     this.persist()
@@ -315,11 +337,37 @@ class ApplicationService extends EventEmitter {
     try {
       const playInfo = await this.getPlayUrl(task)
       const videoStream = playInfo.dash?.video?.find(item => item.id === Number(task.quality)) || playInfo.dash?.video?.[0]
-      const sourceUrl = videoStream?.baseUrl || videoStream?.base_url || playInfo.durl?.[0]?.url
-      if (!sourceUrl) throw new Error('未找到可下载的视频流')
+      const audioStreams = playInfo.dash?.audio || []
+      const audioStream = audioStreams.find(item => item.id === Number(task.audio_quality)) || audioStreams[0]
+      const videoUrl = videoStream?.baseUrl || videoStream?.base_url
+      const audioUrl = audioStream?.baseUrl || audioStream?.base_url
+      const combinedUrl = playInfo.durl?.[0]?.url
+      if (!videoUrl && !combinedUrl) throw new Error('未找到可下载的视频流')
       fs.mkdirSync(path.dirname(task.file_path), { recursive: true })
-      await this.downloadStream(sourceUrl, task.file_path, task, controller.signal)
-      Object.assign(task, { status: 'completed', progress: 100, completed_at: new Date().toISOString(), updated_at: new Date().toISOString(), speed: 0 })
+
+      if (videoUrl && audioUrl && task.auto_merge !== false) {
+        const videoPath = `${task.file_path}.video.tmp`
+        const audioPath = `${task.file_path}.audio.tmp`
+        try {
+          task.progress = 0
+          await this.downloadStream(videoUrl, videoPath, task, controller.signal, { progressStart: 0, progressEnd: 70 })
+          await this.downloadStream(audioUrl, audioPath, task, controller.signal, { progressStart: 70, progressEnd: 90 })
+          task.status = 'merging'
+          task.progress = 90
+          this.emitTask(task)
+          await this.mergeStreams(videoPath, audioPath, task.file_path, controller.signal)
+        } finally {
+          if (task.delete_temp_files !== false) {
+            fs.rmSync(videoPath, { force: true })
+            fs.rmSync(audioPath, { force: true })
+          }
+        }
+      } else {
+        await this.downloadStream(combinedUrl || videoUrl, task.file_path, task, controller.signal)
+      }
+
+      const fileSize = fs.existsSync(task.file_path) ? fs.statSync(task.file_path).size : task.file_size
+      Object.assign(task, { status: 'completed', file_size: fileSize, downloaded_size: fileSize, progress: 100, completed_at: new Date().toISOString(), updated_at: new Date().toISOString(), speed: 0 })
     } catch (error) {
       if (controller.signal.aborted && task.status !== 'paused') task.status = 'cancelled'
       if (!controller.signal.aborted) {
@@ -334,24 +382,52 @@ class ApplicationService extends EventEmitter {
     }
   }
 
-  async downloadStream(url, destination, task, signal) {
+  async downloadStream(url, destination, task, signal, { progressStart = 0, progressEnd = 100 } = {}) {
     const started = Date.now()
     const response = await fetch(url, { headers: { ...BILIBILI_HEADERS, Range: 'bytes=0-' }, signal })
     if (!response.ok) throw new Error(`下载失败: HTTP ${response.status}`)
     const total = Number(response.headers.get('content-length')) || 0
-    task.file_size = total || null
     let downloaded = 0
     const progressStream = new TransformStream({
       transform: (chunk, controller) => {
         downloaded += chunk.byteLength
-        task.downloaded_size = downloaded
-        task.progress = total ? Math.min(100, downloaded / total * 100) : 0
+        const ratio = total ? Math.min(1, downloaded / total) : 0
+        task.progress = progressStart + ratio * (progressEnd - progressStart)
         task.speed = downloaded / Math.max(1, (Date.now() - started) / 1000)
         if (downloaded === chunk.byteLength || downloaded % (4 * 1024 * 1024) < chunk.byteLength) this.emitTask(task)
         controller.enqueue(chunk)
       }
     })
     await pipeline(Readable.fromWeb(response.body.pipeThrough(progressStream)), fs.createWriteStream(destination))
+  }
+
+  mergeStreams(videoPath, audioPath, destination, signal) {
+    return new Promise((resolve, reject) => {
+      const ffmpeg = spawn(resolveFfmpegPath(), [
+        '-y',
+        '-i', videoPath,
+        '-i', audioPath,
+        '-map', '0:v:0',
+        '-map', '1:a:0',
+        '-c', 'copy',
+        '-movflags', '+faststart',
+        destination
+      ], { windowsHide: true })
+      let stderr = ''
+      const abort = () => ffmpeg.kill('SIGTERM')
+      signal.addEventListener('abort', abort, { once: true })
+      ffmpeg.stderr.on('data', chunk => { stderr += chunk.toString() })
+      ffmpeg.on('error', error => {
+        signal.removeEventListener('abort', abort)
+        reject(error)
+      })
+      ffmpeg.on('close', code => {
+        signal.removeEventListener('abort', abort)
+        if (signal.aborted) return reject(new Error('合并已取消'))
+        if (code === 0) return resolve()
+        reject(new Error(`音视频合并失败: ${stderr.trim().split('\n').slice(-3).join(' ')}`))
+      })
+    })
   }
 
   emitTask(task) {
@@ -395,13 +471,22 @@ class ApplicationService extends EventEmitter {
     return { message: action === 'pause' ? '下载已暂停' : action === 'resume' ? '下载已恢复' : '下载已取消' }
   }
 
-  deleteTask(taskId) {
+  deleteTask(taskId, deleteFile = false) {
+    const task = this.tasks.find(item => item.task_id === taskId)
+    if (!task) throw new Error('任务不存在')
     this.controllers.get(taskId)?.abort()
-    const before = this.tasks.length
-    this.tasks = this.tasks.filter(task => task.task_id !== taskId)
-    if (before === this.tasks.length) throw new Error('任务不存在')
+
+    if (deleteFile && task.file_path) {
+      try {
+        fs.rmSync(task.file_path, { force: true })
+      } catch (error) {
+        throw new Error(`删除下载文件失败: ${serializeError(error)}`)
+      }
+    }
+
+    this.tasks = this.tasks.filter(item => item.task_id !== taskId)
     this.persist()
-    return { message: '任务已删除' }
+    return { message: deleteFile ? '任务记录和文件已删除' : '任务记录已删除' }
   }
 
   getStats() {

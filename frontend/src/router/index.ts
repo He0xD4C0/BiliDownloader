@@ -60,7 +60,7 @@ const router = createRouter({
 // 路由守卫：仅设置页面标题，不进行任何登录拦截
 router.beforeEach((to, from, next) => {
   if (to.meta.title) {
-    document.title = `${to.meta.title} - BilibiliDown`
+    document.title = `${to.meta.title} - BiliDownloader`
   }
   next()
 })

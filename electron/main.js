@@ -9,9 +9,9 @@ function configureApplicationPaths() {
   let dataDirectory
   if (process.platform === 'win32') {
     const roamingDirectory = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming')
-    dataDirectory = path.join(roamingDirectory, 'BilibiliDown')
+    dataDirectory = path.join(roamingDirectory, 'BiliDownloader')
   } else if (process.platform === 'linux') {
-    dataDirectory = path.join(path.sep, 'opt', 'BilibiliDown')
+    dataDirectory = path.join(path.sep, 'opt', 'BiliDownloader')
   }
 
   if (!dataDirectory) return
@@ -115,7 +115,7 @@ function createTray() {
     }
   ])
 
-  tray.setToolTip('BilibiliDown')
+  tray.setToolTip('BiliDownloader')
   tray.setContextMenu(contextMenu)
 
   tray.on('click', () => {
@@ -185,7 +185,7 @@ function createApplicationMenu() {
       label: '帮助',
       submenu: [
         {
-          label: '关于 BilibiliDown',
+          label: '关于 BiliDownloader',
           click: () => {
             mainWindow?.webContents.send('show-about')
           }
@@ -199,7 +199,7 @@ function createApplicationMenu() {
         {
           label: '报告问题',
           click: () => {
-            shell.openExternal('https://github.com/yourusername/bilibilidown/issues')
+            shell.openExternal('https://github.com/yourusername/bilidownloader/issues')
           }
         }
       ]
@@ -276,19 +276,19 @@ ipcMain.handle('open-file-directory', (event, filePath) => {
   return false
 })
 
-ipcMain.handle('open-file', (event, filePath) => {
-  if (filePath && require('fs').existsSync(filePath)) {
-    shell.openPath(filePath)
-    return true
-  }
-  return false
+ipcMain.handle('open-file', async (_event, filePath) => {
+  if (!filePath || !fs.existsSync(filePath)) return false
+
+  const errorMessage = await shell.openPath(filePath)
+  if (errorMessage) throw new Error(`无法使用系统默认应用打开文件: ${errorMessage}`)
+  return true
 })
 
 // 处理来自渲染进程的下载状态更新
 ipcMain.on('download-status-update', (event, status) => {
   // 更新托盘图标或通知
   if (tray) {
-    tray.setToolTip(`BilibiliDown - ${status}`)
+    tray.setToolTip(`BiliDownloader - ${status}`)
   }
 })
 
@@ -297,7 +297,7 @@ ipcMain.handle('show-notification', (event, options) => {
   const { Notification } = require('electron')
   
   new Notification({
-    title: options.title || 'BilibiliDown',
+    title: options.title || 'BiliDownloader',
     body: options.body,
     silent: options.silent || false
   }).show()

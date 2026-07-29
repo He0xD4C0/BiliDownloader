@@ -1,11 +1,10 @@
 # Dependencies
 node_modules/
-frontend/node_modules/
 
 # Build output
 dist-electron/
 frontend/dist/
-frontend/node_modules/.vite/
+node_modules/.vite/
 *.blockmap
 *.dmg
 *.AppImage
@@ -29,8 +28,7 @@ frontend/src/components.d.ts
 # Runtime data and downloads
 application-state.json
 application-state.json.tmp
-BilibiliDown/
-BiliBiliDown/
+BiliDownloader/
 
 # Logs and test output
 *.log
@@ -51,3 +49,5 @@ Desktop.ini
 *.tmp
 *.temp
 .cache/
+
+.claude/

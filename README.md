@@ -1,6 +1,6 @@
-# BilibiliDown
+# BiliDownloader
 
-BilibiliDown 是一个用于解析和下载 B 站视频的独立 Electron 桌面应用。Vue 负责界面展示，视频解析、账号状态、下载任务、文件系统和本地持久化均由 Electron 主进程统一管理。
+BiliDownloader 是一个用于解析和下载 B 站视频的独立 Electron 桌面应用。Vue 负责界面展示，视频解析、账号状态、下载任务、文件系统和本地持久化均由 Electron 主进程统一管理。
 
 本项目不需要 Python、FastAPI、本机 API 端口或浏览器插件。
 
@@ -56,32 +56,14 @@ B 站网络请求、流式下载、文件写入和系统对话框仍然使用异
 
 ## 快速开始
 
-### 使用启动脚本
-
-macOS 或 Linux：
-
-```bash
-chmod +x start.sh
-./start.sh
-```
-
-Windows：
-
-```text
-双击 start.bat
-```
-
-启动脚本会检查 Node.js/npm，并安装缺失的根目录及前端依赖。
-
-### 手动启动
+项目只有一个根级 npm 工程。安装依赖并启动开发环境：
 
 ```bash
 npm install
-npm --prefix frontend install
 npm run dev
 ```
 
-`npm run dev` 会同时启动 Vite 开发服务器和 Electron 桌面应用。
+`npm run dev` 会同时启动 Vite 开发服务器和 Electron 桌面应用，无需进入 `frontend` 单独安装依赖。
 
 ## 构建与打包
 
@@ -126,15 +108,15 @@ dist-electron/
 应用数据：
 
 ```text
-%USERPROFILE%\AppData\Roaming\BilibiliDown
+%USERPROFILE%\AppData\Roaming\BiliDownloader
 ```
 
-代码优先使用 `%APPDATA%\BilibiliDown`，在标准 Windows 环境中与上述路径一致。
+代码优先使用 `%APPDATA%\BiliDownloader`，在标准 Windows 环境中与上述路径一致。
 
 默认下载目录：
 
 ```text
-%USERPROFILE%\Downloads\BiliBiliDown
+%USERPROFILE%\Downloads\BiliDownloader
 ```
 
 ### Linux
@@ -142,29 +124,29 @@ dist-electron/
 应用数据：
 
 ```text
-/opt/BilibiliDown
+/opt/BiliDownloader
 ```
 
 默认下载目录：
 
 ```text
-~/Downloads/BilibiliDown
+~/Downloads/BiliDownloader
 ```
 
-> `/opt/BilibiliDown` 必须对运行应用的用户可写。Linux 安装包或部署脚本应创建该目录并设置合适的所有者和权限。
+> `/opt/BiliDownloader` 必须对运行应用的用户可写。Linux 安装包或部署脚本应创建该目录并设置合适的所有者和权限。
 
 ### macOS
 
 应用数据使用 Electron 的系统 `userData` 目录，通常为：
 
 ```text
-~/Library/Application Support/bilibilidown
+~/Library/Application Support/bilidownloader
 ```
 
 默认下载目录：
 
 ```text
-~/Downloads/BilibiliDown
+~/Downloads/BiliDownloader
 ```
 
 用户可在应用中选择其他下载目录。任务、设置和账号状态保存在应用数据目录的 `application-state.json` 中；B 站登录凭证通过 Electron `safeStorage` 加密后持久化。
@@ -182,7 +164,7 @@ dist-electron/
 ## 项目目录
 
 ```text
-bilibilidown/
+bilidownloader/
 ├── electron/
 │   ├── main.js                 # Electron 入口与系统能力
 │   ├── preload.js              # 安全 IPC 边界
@@ -192,9 +174,8 @@ bilibilidown/
 │   ├── src/                    # Vue 界面、Pinia store 和 IPC 适配层
 │   └── public/                 # 前端静态资源
 ├── electron-builder.config.js
-├── package.json
-├── start.sh
-└── start.bat
+├── package-lock.json
+└── package.json                # Electron 与 Vue 的统一依赖和脚本
 ```
 
 ## 常用命令

@@ -7,17 +7,18 @@ import { resolve } from 'path'
 
 // https://vitejs.dev/config/
 export default defineConfig({
+  root: __dirname,
   base: './',
   plugins: [
     vue(),
     AutoImport({
       resolvers: [ElementPlusResolver()],
       imports: ['vue', 'vue-router', 'pinia'],
-      dts: 'src/auto-imports.d.ts',
+      dts: resolve(__dirname, 'src/auto-imports.d.ts'),
     }),
     Components({
       resolvers: [ElementPlusResolver()],
-      dts: 'src/components.d.ts',
+      dts: resolve(__dirname, 'src/components.d.ts'),
     }),
   ],
   resolve: {
@@ -29,7 +30,7 @@ export default defineConfig({
     port: 5173,
   },
   build: {
-    outDir: 'dist',
+    outDir: resolve(__dirname, 'dist'),
     sourcemap: false,
     rollupOptions: {
       output: {

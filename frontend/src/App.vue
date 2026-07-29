@@ -7,8 +7,8 @@
         <el-header height="60px" class="header" v-if="showHeader">
           <div class="header-left">
             <div class="header-logo" @click="router.push('/')">
-              <img src="/vite.svg" alt="BilibiliDown Logo" />
-              <span class="app-name">BilibiliDown</span>
+              <img src="/vite.svg" alt="BiliDownloader Logo" />
+              <span class="app-name">BiliDownloader</span>
               <span class="app-version">v1.0.0</span>
             </div>
             <el-breadcrumb separator="/" class="breadcrumb" v-if="breadcrumb.length">
@@ -76,7 +76,7 @@
         <el-footer height="40px" class="footer" v-if="showFooter">
           <div class="footer-content">
             <div class="footer-left">
-              <span>BilibiliDown v1.0.0</span>
+              <span>BiliDownloader v1.0.0</span>
               <el-divider direction="vertical" />
               <span>仅供学习交流使用</span>
             </div>

@@ -4,7 +4,7 @@ interface AppResponse<T> extends Promise<T> {}
 
 const electronRequest = <T>(method: string, url: string, data?: unknown, config?: AxiosRequestConfig): AppResponse<T> => {
   if (!window.electronAPI) {
-    return Promise.reject(new Error('应用服务不可用，请通过 Electron 启动 BilibiliDown'))
+    return Promise.reject(new Error('应用服务不可用，请通过 Electron 启动 BiliDownloader'))
   }
 
   return window.electronAPI.request<T>({

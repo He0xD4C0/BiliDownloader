@@ -17,7 +17,7 @@ export interface DownloadTask {
   file_path: string | null
   file_size: number | null
   downloaded_size: number | null
-  status: 'pending' | 'downloading' | 'paused' | 'completed' | 'failed' | 'cancelled'
+  status: 'pending' | 'downloading' | 'merging' | 'paused' | 'completed' | 'failed' | 'cancelled'
   progress: number
   speed: number | null
   error_message: string | null
@@ -122,7 +122,9 @@ export const useDownloadStore = defineStore('download', () => {
     aid?: number
     cid: number
     quality?: number
-    cookies?: any
+    audio_quality?: number | null
+    login_status?: number
+    download_path?: string
     auto_merge?: boolean
     delete_temp_files?: boolean
   }) => {
@@ -193,9 +195,11 @@ export const useDownloadStore = defineStore('download', () => {
     }
   }
   
-  const deleteTask = async (taskId: string) => {
+  const deleteTask = async (taskId: string, deleteFile: boolean = false) => {
     try {
-      const response = await api.delete(`/download/task/${taskId}`)
+      const response = await api.delete(`/download/task/${taskId}`, {
+        params: { delete_file: deleteFile }
+      })
       // 从任务列表中移除
       tasks.value = tasks.value.filter(task => task.task_id !== taskId)
       return response

@@ -7,22 +7,6 @@
       label-width="100px"
       label-position="top"
     >
-      <!-- 登录状态指示 -->
-      <div v-if="checkingLogin" class="login-status-row">
-        <span class="login-badge" style="color:#909399;background:#f4f4f5;">
-          正在检测登录状态...
-        </span>
-      </div>
-      <div v-else class="login-status-row">
-        <span class="login-badge" :style="{
-          color: loginStatusInfo.color,
-          background: loginStatusInfo.color + '18',
-          borderColor: loginStatusInfo.color + '44',
-        }">
-          {{ loginStatusInfo.icon }} {{ loginStatusInfo.text }}
-        </span>
-      </div>
-      
       <!-- URL输入 -->
       <el-form-item label="B站视频链接" prop="url">
         <el-input
@@ -270,16 +254,6 @@ const qualityGroups = computed(() => {
   return groups
 })
 
-// 登录状态标签
-const loginStatusInfo = computed(() => {
-  const statusMap: Record<number, { text: string, color: string, icon: string }> = {
-    0: { text: '未登录 - 仅360P/480P', color: '#909399', icon: '🔒' },
-    1: { text: '已登录 - 最高1080P', color: '#67c23a', icon: '✅' },
-    2: { text: '大会员 - 全部画质', color: '#e6a23c', icon: '👑' }
-  }
-  return statusMap[loginStatus.value] || statusMap[0]
-})
-
 // 方法
 const handleUrlChange = () => {
   videoInfo.value = null
@@ -449,22 +423,6 @@ onMounted(async () => {
     font-size: 12px;
     color: #909399;
     margin-top: 4px;
-  }
-  
-  // 登录状态指示器
-  .login-status-row {
-    margin-bottom: 12px;
-    
-    .login-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-      padding: 4px 10px;
-      border-radius: 12px;
-      font-size: 12px;
-      border: 1px solid transparent;
-      font-weight: 500;
-    }
   }
   
   // 大会员标签

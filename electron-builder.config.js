@@ -1,7 +1,7 @@
 module.exports = {
-  appId: 'com.bilibilidown.app',
-  productName: 'BilibiliDown',
-  copyright: 'Copyright © 2024 BilibiliDown Team',
+  appId: 'com.bilidownloader.app',
+  productName: 'BiliDownloader',
+  copyright: 'Copyright © 2024 BiliDownloader Team',
   
   directories: {
     output: 'dist-electron',
@@ -10,10 +10,14 @@ module.exports = {
   
   files: [
     'electron/**',
-    'frontend/dist/**'
+    'frontend/dist/**',
+    'node_modules/ffmpeg-static/**'
   ],
 
   asar: true,
+  asarUnpack: [
+    'node_modules/ffmpeg-static/**'
+  ],
   
   win: {
     target: [
@@ -34,7 +38,7 @@ module.exports = {
     allowToChangeInstallationDirectory: true,
     createDesktopShortcut: true,
     createStartMenuShortcut: true,
-    shortcutName: 'BilibiliDown'
+    shortcutName: 'BiliDownloader'
   },
   
   mac: {
@@ -51,7 +55,7 @@ module.exports = {
     target: ['AppImage', 'deb', 'rpm'],
     icon: 'electron/build/icon.png',
     category: 'Utility',
-    maintainer: 'BilibiliDown Team'
+    maintainer: 'BiliDownloader Team'
   },
   
   dmg: {
@@ -73,7 +77,7 @@ module.exports = {
   publish: {
     provider: 'github',
     owner: 'yourusername',
-    repo: 'bilibilidown'
+    repo: 'bilidownloader'
   },
   
   npmRebuild: false,

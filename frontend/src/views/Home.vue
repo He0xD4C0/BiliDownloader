@@ -227,6 +227,23 @@
       </el-card>
     </div>
 
+    <!-- 删除任务确认对话框 -->
+    <el-dialog
+      v-model="showDeleteDialog"
+      :title="deleteDialogTitle"
+      width="420px"
+      :close-on-click-modal="false"
+    >
+      <p>{{ deleteDialogMessage }}</p>
+      <el-checkbox v-model="deleteFiles">是否同时删除文件</el-checkbox>
+      <template #footer>
+        <el-button @click="cancelDelete">取消</el-button>
+        <el-button type="danger" :loading="deletingTasks" @click="confirmDelete">
+          确定删除
+        </el-button>
+      </template>
+    </el-dialog>
+
     <!-- 新建下载对话框 -->
     <el-dialog
       v-model="showNewDownloadDialog"
@@ -250,7 +267,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
 import { Download, Clock, CircleCheck, Folder, Plus, Refresh, Setting } from '@element-plus/icons-vue'
 import { useDownloadStore } from '@/stores/download'
 import NewDownloadForm from '@/components/download/NewDownloadForm.vue'
@@ -265,6 +282,10 @@ const filterStatus = ref('') // 空字符串 = 全部（不筛选）
 const currentPage = ref(1)
 const pageSize = ref(20)
 const selectedTasks = ref<string[]>([])
+const showDeleteDialog = ref(false)
+const deleteFiles = ref(false)
+const deletingTasks = ref(false)
+const pendingDeleteTaskIds = ref<string[]>([])
 
 // 任务原始数据
 const tasks = computed(() => downloadStore.tasks)
@@ -303,6 +324,10 @@ const displayTasks = computed(() => {
 })
 
 const totalTasks = computed(() => displayTasks.value.length)
+const deleteDialogTitle = computed(() => pendingDeleteTaskIds.value.length > 1 ? '删除选中任务' : '删除任务')
+const deleteDialogMessage = computed(() => pendingDeleteTaskIds.value.length > 1
+  ? `确定删除选中的 ${pendingDeleteTaskIds.value.length} 条任务记录吗？`
+  : '确定删除此任务记录吗？')
 
 const stats = computed(() => ({
   downloading_tasks: downloadStore.downloadingTasks.length,
@@ -351,6 +376,7 @@ const getStatusType = (status: string) => {
   switch (status) {
     case 'completed': return 'success'
     case 'downloading': return 'primary'
+    case 'merging': return 'primary'
     case 'paused': return 'warning'
     case 'failed': return 'danger'
     case 'pending': return 'info'
@@ -362,6 +388,7 @@ const getStatusText = (status: string) => {
   const statusMap: Record<string, string> = {
     'pending': '等待中',
     'downloading': '下载中',
+    'merging': '合并中',
     'paused': '已暂停',
     'completed': '已完成',
     'failed': '失败',
@@ -414,25 +441,48 @@ const resumeTask = async (taskId: string) => {
   }
 }
 
-const deleteTask = async (taskId: string) => {
+const deleteTask = (taskId: string) => {
+  pendingDeleteTaskIds.value = [taskId]
+  deleteFiles.value = false
+  showDeleteDialog.value = true
+}
+
+const cancelDelete = () => {
+  showDeleteDialog.value = false
+  pendingDeleteTaskIds.value = []
+  deleteFiles.value = false
+}
+
+const confirmDelete = async () => {
+  deletingTasks.value = true
   try {
-    await ElMessageBox.confirm('确定删除此任务吗？', '提示', {
-      confirmButtonText: '确定',
-      cancelButtonText: '取消',
-      type: 'warning'
-    })
-    await downloadStore.deleteTask(taskId)
-    ElMessage.success('任务已删除')
-  } catch (error) {
-    if (error !== 'cancel') {
-      ElMessage.error('删除失败')
+    for (const taskId of pendingDeleteTaskIds.value) {
+      await downloadStore.deleteTask(taskId, deleteFiles.value)
     }
+    selectedTasks.value = selectedTasks.value.filter(taskId => !pendingDeleteTaskIds.value.includes(taskId))
+    await downloadStore.fetchTasks()
+    await downloadStore.fetchStats()
+    ElMessage.success(deleteFiles.value ? '任务记录和文件已删除' : '任务记录已删除')
+    cancelDelete()
+  } catch (error) {
+    ElMessage.error('删除失败')
+  } finally {
+    deletingTasks.value = false
   }
 }
 
-const openFile = (filePath: string) => {
-  console.log('打开文件:', filePath)
-  ElMessage.info('打开文件功能需要桌面应用支持')
+const openFile = async (filePath: string) => {
+  if (!window.electronAPI) {
+    ElMessage.error('系统文件打开功能不可用')
+    return
+  }
+
+  try {
+    const opened = await window.electronAPI.openFile(filePath)
+    if (!opened) ElMessage.error('文件不存在或已被移动')
+  } catch (error: any) {
+    ElMessage.error(error.message || '无法使用系统默认应用打开文件')
+  }
 }
 
 const handleSizeChange = (size: number) => {
@@ -476,23 +526,10 @@ const resumeSelectedTasks = async () => {
   }
 }
 
-const deleteSelectedTasks = async () => {
-  try {
-    await ElMessageBox.confirm(`确定删除选中的 ${selectedTasks.value.length} 个任务吗？`, '提示', {
-      confirmButtonText: '确定',
-      cancelButtonText: '取消',
-      type: 'warning'
-    })
-    for (const taskId of selectedTasks.value) {
-      await downloadStore.deleteTask(taskId)
-    }
-    selectedTasks.value = []
-    ElMessage.success('选中任务已删除')
-  } catch (error) {
-    if (error !== 'cancel') {
-      ElMessage.error('删除失败')
-    }
-  }
+const deleteSelectedTasks = () => {
+  pendingDeleteTaskIds.value = [...selectedTasks.value]
+  deleteFiles.value = false
+  showDeleteDialog.value = true
 }
 
 const clearSelection = () => {

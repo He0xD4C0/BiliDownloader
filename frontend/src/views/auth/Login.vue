@@ -4,7 +4,7 @@
       <div class="login-header">
         <div class="logo">
           <img src="/vite.svg" alt="Logo" />
-          <h1>BilibiliDown</h1>
+          <h1>BiliDownloader</h1>
         </div>
         <p class="subtitle">B站视频下载工具</p>
       </div>
