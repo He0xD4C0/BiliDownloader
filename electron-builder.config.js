@@ -1,7 +1,7 @@
 module.exports = {
   appId: 'com.bilidownloader.app',
   productName: 'BiliDownloader',
-  copyright: 'Copyright © 2024 BiliDownloader Team',
+  copyright: 'Copyright 2026 He0xD4C0',
   
   directories: {
     output: 'dist-electron',
@@ -22,14 +22,11 @@ module.exports = {
   win: {
     target: [
       {
-        target: 'nsis',
-        arch: ['x64', 'ia32']
-      },
-      {
         target: 'portable',
-        arch: ['x64', 'ia32']
+        arch: ['x64', 'arm64']
       }
     ],
+    artifactName: '${productName}-${version}-windows-${arch}.${ext}',
     icon: 'electron/build/icon.ico'
   },
   
@@ -42,7 +39,8 @@ module.exports = {
   },
   
   mac: {
-    target: ['dmg', 'zip'],
+    target: ['dmg'],
+    artifactName: '${productName}-${version}-macos-${arch}.${ext}',
     icon: 'electron/build/icon.icns',
     category: 'public.app-category.utilities',
     hardenedRuntime: true,
@@ -52,7 +50,8 @@ module.exports = {
   },
   
   linux: {
-    target: ['AppImage', 'deb', 'rpm'],
+    target: ['AppImage'],
+    artifactName: '${productName}-${version}-linux-${arch}.${ext}',
     icon: 'electron/build/icon.png',
     category: 'Utility',
     maintainer: 'BiliDownloader Team'
