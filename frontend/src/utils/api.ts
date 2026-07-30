@@ -11,8 +11,7 @@ const electronRequest = <T>(method: string, url: string, data?: unknown, config?
     method,
     url,
     data,
-    params: config?.params,
-    token: localStorage.getItem('token')
+    params: config?.params
   })
 }
 

@@ -124,7 +124,7 @@ dist-electron/
 应用数据：
 
 ```text
-/opt/BiliDownloader
+~/.local/share/BiliDownloader
 ```
 
 默认下载目录：
@@ -132,8 +132,6 @@ dist-electron/
 ```text
 ~/Downloads/BiliDownloader
 ```
-
-> `/opt/BiliDownloader` 必须对运行应用的用户可写。Linux 安装包或部署脚本应创建该目录并设置合适的所有者和权限。
 
 ### macOS
 
@@ -196,7 +194,8 @@ npm start               # 直接启动 Electron
 - 当前下载核心优先保存选定的视频流。
 - B 站 DASH 视频通常将视频和音频分开提供；完整音视频合并仍需接入 FFmpeg。
 - 恢复下载目前会重新发起下载，尚未实现经过验证的持久化断点续传。
-- 二维码图片目前通过外部 QR 图片服务生成，后续可改为本地生成。
+- B 站登录二维码在应用内本地生成，不会将登录二维码内容发送给第三方图片服务。
+- 未登录时以 B 站网页版匿名请求方式访问公开内容；登录后由 Electron 主进程自动携带已加密保存的 B 站凭证。
 - Windows 和 Linux 安装包需要在目标平台继续验证目录权限、托盘图标和安装行为。
 
 ## 使用说明

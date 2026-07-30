@@ -11,7 +11,7 @@ function configureApplicationPaths() {
     const roamingDirectory = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming')
     dataDirectory = path.join(roamingDirectory, 'BiliDownloader')
   } else if (process.platform === 'linux') {
-    dataDirectory = path.join(path.sep, 'opt', 'BiliDownloader')
+    dataDirectory = path.join(os.homedir(), '.local', 'share', 'BiliDownloader')
   }
 
   if (!dataDirectory) return
@@ -199,7 +199,7 @@ function createApplicationMenu() {
         {
           label: '报告问题',
           click: () => {
-            shell.openExternal('https://github.com/yourusername/bilidownloader/issues')
+            shell.openExternal('https://github.com/He0xD4C0/BiliDownloader/issues')
           }
         }
       ]

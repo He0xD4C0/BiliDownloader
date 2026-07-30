@@ -420,10 +420,19 @@ const deleteTask = async (taskId: string) => {
   }
 }
 
-const openFile = (filePath: string) => {
-  // 这里应该实现打开文件的逻辑
-  console.log('打开文件:', filePath)
-  ElMessage.info('打开文件功能需要桌面应用支持')
+const openFile = async (filePath: string) => {
+  if (!window.electronAPI) {
+    ElMessage.error('文件打开功能不可用')
+    return
+  }
+
+  try {
+    const opened = await window.electronAPI.openFile(filePath)
+    if (!opened) ElMessage.error('无法打开文件')
+  } catch (error) {
+    console.error('打开文件失败:', error)
+    ElMessage.error('打开文件失败')
+  }
 }
 
 const handleSizeChange = (size: number) => {

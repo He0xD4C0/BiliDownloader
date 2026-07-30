@@ -75,8 +75,8 @@ module.exports = {
   
   publish: {
     provider: 'github',
-    owner: 'yourusername',
-    repo: 'bilidownloader'
+    owner: 'He0xD4C0',
+    repo: 'BiliDownloader'
   },
   
   npmRebuild: false,

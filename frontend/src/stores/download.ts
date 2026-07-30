@@ -123,7 +123,6 @@ export const useDownloadStore = defineStore('download', () => {
     cid: number
     quality?: number
     audio_quality?: number | null
-    login_status?: number
     download_path?: string
     auto_merge?: boolean
     delete_temp_files?: boolean

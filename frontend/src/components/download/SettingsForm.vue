@@ -118,13 +118,14 @@ const rules: FormRules = {
 const submitting = ref(false)
 
 // 方法
-const selectDownloadPath = () => {
-  // 这里应该调用系统的文件选择对话框
-  // 由于浏览器限制，暂时使用输入框
-  const path = prompt('请输入下载路径:', form.default_download_path)
-  if (path !== null) {
-    form.default_download_path = path
+const selectDownloadPath = async () => {
+  if (!window.electronAPI) {
+    ElMessage.error('系统目录选择器不可用')
+    return
   }
+
+  const selectedPath = await window.electronAPI.selectDownloadDirectory()
+  if (selectedPath) form.default_download_path = selectedPath
 }
 
 const handleCancel = () => {

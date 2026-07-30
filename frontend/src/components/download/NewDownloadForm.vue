@@ -302,11 +302,12 @@ const parseUrl = async () => {
     const videoResponse = await api.get('/video/info', {
       params: {
         bvid,
-        aid,
-        login_status: loginStatus.value,
+        aid
       }
     })
 
+    loginStatus.value = videoResponse.login_status || 0
+    loginStatusText.value = loginStatus.value >= 2 ? '大会员' : loginStatus.value >= 1 ? '已登录' : '未登录'
     videoInfo.value = videoResponse
     
     // 默认选择第一个分P
@@ -381,14 +382,13 @@ const handleSubmit = async () => {
     // 获取选择的页面
     const page = form.selectedPage || videoInfo.value.pages?.[0]
     
-    // 准备下载数据（包含音频质量和登录状态）
+    // 准备下载数据；登录凭证和会员状态由 Electron 主进程决定。
     const downloadData = {
       bvid: videoInfo.value.bvid,
       aid: videoInfo.value.aid,
       cid: page?.cid || videoInfo.value.cid,
       quality: form.quality ?? undefined,
-      audio_quality: form.audioQuality,           // 音频质量
-      login_status: loginStatus.value,             // 登录状态
+      audio_quality: form.audioQuality,
       auto_merge: form.autoMerge,
       delete_temp_files: form.deleteTempFiles,
       download_path: form.downloadPath
