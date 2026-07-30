@@ -142,12 +142,12 @@ class ApplicationService extends EventEmitter {
     fs.renameSync(temporaryPath, this.statePath)
   }
 
-  async request({ method = 'GET', url, data, params = {}, token }) {
+  async request({ method = 'GET', url, data, params = {} }) {
     const route = String(url || '').replace(/^\/api\/v1/, '')
     const normalizedMethod = method.toUpperCase()
 
     if (normalizedMethod === 'GET' && route === '/video/parse-url') return this.parseVideoUrl(params.url)
-    if (normalizedMethod === 'GET' && route === '/video/info') return this.getVideoInfo({ ...params, cookies: this.bilibiliCookies })
+    if (normalizedMethod === 'GET' && route === '/video/info') return this.getVideoInfo({ bvid: params.bvid, aid: params.aid })
     if (normalizedMethod === 'POST' && route === '/video/check-vip-status') return this.checkVipStatus(this.bilibiliCookies)
     if (normalizedMethod === 'POST' && route === '/download/start') return this.startDownload(data || {})
     if (normalizedMethod === 'GET' && route === '/download/tasks') return this.listTasks(params)
@@ -158,8 +158,8 @@ class ApplicationService extends EventEmitter {
     if (normalizedMethod === 'POST' && route === '/download/clear-completed') return this.clearCompleted()
     if (normalizedMethod === 'POST' && route === '/auth/bilibili/qrcode') return this.createQrCode()
     if (normalizedMethod === 'POST' && route === '/auth/bilibili/check-login') return this.checkQrCode(data?.qrcode_key)
-    if (normalizedMethod === 'GET' && route === '/auth/session-status') return this.validateCurrentSession(token)
-    if (normalizedMethod === 'GET' && route === '/auth/me') return this.getCurrentUser(token)
+    if (normalizedMethod === 'GET' && route === '/auth/session-status') return this.validateCurrentSession()
+    if (normalizedMethod === 'GET' && route === '/auth/me') return this.getCurrentUser()
     if (normalizedMethod === 'GET' && route === '/auth/logout') return this.logout()
 
     const taskMatch = route.match(/^\/download\/task\/([^/]+)$/)
@@ -232,12 +232,15 @@ class ApplicationService extends EventEmitter {
     return { data: result.data, response }
   }
 
-  async getVideoInfo({ bvid, aid, login_status = 0, cookies = {} }) {
+  async getVideoInfo({ bvid, aid }) {
     if (!bvid && !aid) throw new Error('必须提供BV号或AV号')
+    const cookies = this.bilibiliCookies
+    const accountStatus = await this.checkVipStatus(cookies)
+    const loginStatus = accountStatus.login_status
     const { data } = await this.bilibiliGet('https://api.bilibili.com/x/web-interface/view', {
-      params: { bvid, aid }
+      params: { bvid, aid },
+      cookies
     })
-    const loginStatus = Number(login_status) || 0
     const playInfo = await this.getPlayUrl({
       bvid: data.bvid,
       cid: data.cid || data.pages?.[0]?.cid,
@@ -295,14 +298,14 @@ class ApplicationService extends EventEmitter {
     if (task.audio_quality === 30251) fnval |= 2048
     const { data } = await this.bilibiliGet('https://api.bilibili.com/x/player/playurl', {
       params: { bvid: task.bvid, cid: task.cid, qn: task.quality || 80, fnval, fnver: 0, fourk: 1 },
-      cookies: task.cookies
+      cookies: this.bilibiliCookies
     })
     return data
   }
 
   async startDownload(input) {
-    const cookies = Object.keys(this.bilibiliCookies).length ? this.bilibiliCookies : (input.cookies || {})
-    const video = await this.getVideoInfo({ bvid: input.bvid, aid: input.aid, login_status: input.login_status, cookies })
+    const video = await this.getVideoInfo({ bvid: input.bvid, aid: input.aid })
+    const loginStatus = video.login_status
     const taskId = crypto.randomUUID()
     const now = new Date().toISOString()
     const safeTitle = video.title.replace(/[\\/:*?"<>|]/g, '_').slice(0, 120)
@@ -315,8 +318,8 @@ class ApplicationService extends EventEmitter {
       file_path: path.join(directory, `${safeTitle}-${taskId.slice(0, 8)}.mp4`),
       file_size: null, downloaded_size: 0, status: 'pending', progress: 0, speed: null,
       error_message: null, error_trace: null, created_at: now, updated_at: null,
-      started_at: null, completed_at: null, cookies,
-      audio_quality: input.audio_quality, login_status: input.login_status || 0,
+      started_at: null, completed_at: null,
+      audio_quality: input.audio_quality, login_status: loginStatus,
       auto_merge: input.auto_merge ?? this.settings.auto_merge,
       delete_temp_files: input.delete_temp_files ?? this.settings.delete_temp_files
     }
@@ -384,7 +387,13 @@ class ApplicationService extends EventEmitter {
 
   async downloadStream(url, destination, task, signal, { progressStart = 0, progressEnd = 100 } = {}) {
     const started = Date.now()
-    const response = await fetch(url, { headers: { ...BILIBILI_HEADERS, Range: 'bytes=0-' }, signal })
+    const headers = {
+      ...BILIBILI_HEADERS,
+      Origin: 'https://www.bilibili.com',
+      Range: 'bytes=0-'
+    }
+    if (Object.keys(this.bilibiliCookies).length) headers.Cookie = cookieHeader(this.bilibiliCookies)
+    const response = await fetch(url, { headers, signal })
     if (!response.ok) throw new Error(`下载失败: HTTP ${response.status}`)
     const total = Number(response.headers.get('content-length')) || 0
     let downloaded = 0
@@ -536,9 +545,9 @@ class ApplicationService extends EventEmitter {
     const vipStatus = vip.vipStatus ?? accountInfo.vip_status ?? 0
     const now = new Date().toISOString()
     return {
-      id: accountInfo.mid || previousUser?.id || 1,
+      id: accountInfo.mid || previousUser?.id || 0,
       username: accountInfo.name || previousUser?.username || `bili_${accountInfo.mid || 'user'}`,
-      email: `${accountInfo.mid || previousUser?.id || 'user'}@bilibili.local`,
+      email: null,
       avatar_url: accountInfo.face || previousUser?.avatar_url || null,
       is_superuser: false,
       created_at: previousUser?.created_at || now,
@@ -560,11 +569,10 @@ class ApplicationService extends EventEmitter {
     return ['ENOTFOUND', 'EAI_AGAIN', 'ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'ENETUNREACH', 'EHOSTUNREACH'].includes(code)
   }
 
-  async validateCurrentSession(token) {
-    if (!token || !this.currentUser) return { status: 'logged_out', user: null }
-    if (!this.bilibiliCookies.SESSDATA || this.bilibiliCookies.SESSDATA === 'deleted') {
-      this.logout()
-      return { status: 'invalid', user: null }
+  async validateCurrentSession() {
+    if (!this.currentUser || !this.bilibiliCookies.SESSDATA || this.bilibiliCookies.SESSDATA === 'deleted') {
+      if (this.currentUser || Object.keys(this.bilibiliCookies).length) this.logout()
+      return { status: 'logged_out', user: null }
     }
 
     try {
@@ -623,12 +631,12 @@ class ApplicationService extends EventEmitter {
     this.bilibiliCookies = cookies
     this.currentUser = this.createCurrentUser(accountInfo)
     this.persist()
-    return { status: 'success', message: '登录成功', access_token: crypto.randomUUID(), token_type: 'bearer', user: this.currentUser }
+    return { status: 'success', message: '登录成功', user: this.currentUser }
   }
 
-  async getCurrentUser(token) {
-    if (!token || !this.currentUser) throw new Error('未登录')
-    return this.currentUser
+  async getCurrentUser() {
+    const session = await this.validateCurrentSession()
+    return session.user
   }
 
   logout() {

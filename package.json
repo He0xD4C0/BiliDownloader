@@ -1,6 +1,6 @@
 {
   "name": "bilidownloader",
-  "version": "1.0.0",
+  "version": "0.0.0",
   "description": "B站视频下载工具 - 桌面应用版",
   "main": "electron/main.js",
   "scripts": {
@@ -33,12 +33,14 @@
   "license": "MIT",
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.1",
+    "@types/qrcode": "^1.5.6",
     "axios": "^1.6.2",
     "dayjs": "^1.11.10",
     "element-plus": "^2.4.1",
     "ffmpeg-static": "^5.2.0",
     "lodash-es": "^4.17.21",
     "pinia": "^2.1.7",
+    "qrcode": "^1.5.4",
     "vue": "^3.3.8",
     "vue-i18n": "^9.4.1",
     "vue-router": "^4.2.5"

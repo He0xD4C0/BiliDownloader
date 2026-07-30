@@ -16,7 +16,6 @@ interface AppRequest {
   url: string
   data?: unknown
   params?: Record<string, unknown>
-  token?: string | null
 }
 
 interface ElectronAPI {

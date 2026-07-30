@@ -9,7 +9,7 @@
             <div class="header-logo" @click="router.push('/')">
               <img src="/vite.svg" alt="BiliDownloader Logo" />
               <span class="app-name">BiliDownloader</span>
-              <span class="app-version">v1.0.0</span>
+              <span class="app-version">v0.0.0</span>
             </div>
             <el-breadcrumb separator="/" class="breadcrumb" v-if="breadcrumb.length">
               <el-breadcrumb-item v-for="item in breadcrumb" :key="item.path">
@@ -76,7 +76,7 @@
         <el-footer height="40px" class="footer" v-if="showFooter">
           <div class="footer-content">
             <div class="footer-left">
-              <span>BiliDownloader v1.0.0</span>
+              <span>BiliDownloader v0.0.0</span>
               <el-divider direction="vertical" />
               <span>仅供学习交流使用</span>
             </div>
@@ -150,6 +150,7 @@ import { ref, computed, reactive, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Loading } from '@element-plus/icons-vue'
+import QRCode from 'qrcode'
 import { useUserStore } from '@/stores/user'
 import { useDownloadStore } from '@/stores/download'
 import { api } from '@/utils/api'
@@ -172,7 +173,7 @@ const loginStatus = reactive({
   description: '请使用B站APP扫描二维码',
   type: 'info' as 'info' | 'success' | 'warning' | 'error'
 })
-const checkLoginTimer = ref<any>(null)
+const checkLoginTimer = ref<ReturnType<typeof setTimeout> | null>(null)
 const refreshingQrcode = ref(false)
 
 // 计算属性
@@ -248,8 +249,11 @@ const getBilibiliQrcode = async () => {
   const qrcode_url = response.qrcode_url  // B站给的URL（不是图片）
   const qrcode_key = response.qrcode_key
   
-  // 用QR Server API生成二维码图片
-  const qrcode_img = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(qrcode_url)}`
+  const qrcode_img = await QRCode.toDataURL(qrcode_url, {
+    width: 200,
+    margin: 1,
+    errorCorrectionLevel: 'M'
+  })
   
   qrcodeInfo.value = {
     qrcode_img,
@@ -264,12 +268,9 @@ const getBilibiliQrcode = async () => {
 }
 
 const startCheckingLoginStatus = () => {
-  if (checkLoginTimer.value) {
-    clearInterval(checkLoginTimer.value)
-  }
-  
-  // 每3秒轮询一次登录状态
-  checkLoginTimer.value = setInterval(async () => {
+  stopCheckingLoginStatus()
+  checkLoginTimer.value = setTimeout(async () => {
+    checkLoginTimer.value = null
     await checkLoginStatus()
   }, 3000)
 }
@@ -312,38 +313,44 @@ const checkLoginStatus = async () => {
         loginStatus.type = 'success'
         stopCheckingLoginStatus()
 
-        // 保存 JWT token 和用户信息
-        if (response.access_token) {
-          userStore.setToken(response.access_token)
-        }
         if (response.user) {
           userStore.setUser(response.user)
+        } else {
+          await userStore.fetchUserInfo()
         }
         showLoginDialog.value = false
         qrcodeInfo.value = null
         ElMessage.success('B站账号登录成功')
         break
+      case 'error':
+        loginStatus.title = '登录失败'
+        loginStatus.description = response.message || '检查登录状态失败，请刷新二维码重试'
+        loginStatus.type = 'error'
+        stopCheckingLoginStatus()
+        break
       default:
-        // 兜底：如果后端返回了 token，也当作登录成功
-        if (response.access_token) {
-          stopCheckingLoginStatus()
-          userStore.setToken(response.access_token)
-          if (response.user) {
-            userStore.setUser(response.user)
-          }
-          showLoginDialog.value = false
-          qrcodeInfo.value = null
-          ElMessage.success('B站账号登录成功')
+        if (response.message) {
+          loginStatus.title = '登录状态异常'
+          loginStatus.description = response.message
+          loginStatus.type = 'warning'
         }
+    }
+
+    if (['scanning', 'confirming'].includes(response.status)) {
+      startCheckingLoginStatus()
     }
   } catch (error: any) {
     console.error('检查登录状态失败:', error)
+    loginStatus.title = '网络异常'
+    loginStatus.description = error.message || '暂时无法检查登录状态，正在重试'
+    loginStatus.type = 'warning'
+    startCheckingLoginStatus()
   }
 }
 
 const stopCheckingLoginStatus = () => {
   if (checkLoginTimer.value) {
-    clearInterval(checkLoginTimer.value)
+    clearTimeout(checkLoginTimer.value)
     checkLoginTimer.value = null
   }
 }
@@ -385,7 +392,7 @@ onMounted(async () => {
 onUnmounted(() => {
   stopTaskUpdates()
   if (checkLoginTimer.value) {
-    clearInterval(checkLoginTimer.value)
+    clearTimeout(checkLoginTimer.value)
   }
 })
 </script>
