@@ -1,6 +1,13 @@
-# BiliDownloader
+<img width="1920" height="720" alt="未标题-1" src="https://github.com/user-attachments/assets/acbfc17d-f66c-454e-b329-b43a703e2824" />
 
 BiliDownloader 是一个用于解析和下载 B 站视频的独立 Electron 桌面应用。Vue 负责界面展示，视频解析、账号状态、下载任务、文件系统和本地持久化均由 Electron 主进程统一管理。
+
+<table>
+  <tr>
+    <td><img width="1200" height="800" alt="e8532cf24f254c8d9d6cff7638da1f86" src="https://github.com/user-attachments/assets/fa7e7769-1d99-4dcd-a63f-b1082ebe9aa2" /></td>
+    <td><img width="1200" height="800" alt="bef1021349c1ed07b4c98a1f53ca247c" src="https://github.com/user-attachments/assets/9a7564c2-de6f-411b-8465-938fcef8d7f5" /></td>
+  </tr>
+</table>
 
 本项目不需要 Python、FastAPI、本机 API 端口或浏览器插件。
 
