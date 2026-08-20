@@ -9,7 +9,7 @@
             <div class="header-logo" @click="router.push('/')">
               <img src="/vite.svg" alt="BiliDownloader Logo" />
               <span class="app-name">BiliDownloader</span>
-              <span class="app-version">v0.0.1</span>
+              <span class="app-version">v{{ appVersion }}</span>
             </div>
             <el-breadcrumb separator="/" class="breadcrumb" v-if="breadcrumb.length">
               <el-breadcrumb-item v-for="item in breadcrumb" :key="item.path">
@@ -81,7 +81,7 @@
         <el-footer height="40px" class="footer" v-if="showFooter">
           <div class="footer-content">
             <div class="footer-left">
-              <span>BiliDownloader v0.0.1</span>
+              <span>BiliDownloader v{{ appVersion }}</span>
               <el-divider direction="vertical" />
               <span>仅供学习交流使用</span>
             </div>
@@ -195,6 +195,7 @@ const refreshingQrcode = ref(false)
 // 计算属性
 const showHeader = computed(() => true)
 const showFooter = computed(() => true)
+const appVersion = ref('dev')
 
 const breadcrumb = computed(() => {
   const crumbs = []
@@ -403,6 +404,17 @@ const stopTaskUpdates = downloadStore.setupTaskUpdates()
 
 // 初始化
 onMounted(async () => {
+  if (window.electronAPI) {
+    try {
+      const appInfo = await window.electronAPI.getAppInfo()
+      if (appInfo.version) {
+        appVersion.value = appInfo.version
+      }
+    } catch (error) {
+      console.warn('获取应用版本失败:', error)
+    }
+  }
+
   const session = await userStore.validateSession()
   if (session.status === 'offline') {
     console.info('当前网络不可用，已跳过账号有效性检查')

@@ -21,7 +21,12 @@ interface AppRequest {
 interface ElectronAPI {
   request<T = any>(request: AppRequest): Promise<T>
   onDownloadUpdate(callback: (task: any) => void): () => void
-  getAppInfo(): Promise<Record<string, unknown>>
+  getAppInfo(): Promise<{
+    version: string
+    name: string
+    platform: string
+    isDev: boolean
+  }>
   selectDownloadDirectory(): Promise<string | null>
   openFileDirectory(filePath: string): Promise<boolean>
   openFile(filePath: string): Promise<boolean>
