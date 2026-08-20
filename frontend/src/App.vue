@@ -47,6 +47,11 @@
               登录
             </el-button>
 
+            <el-button size="small" @click="showSettingsDialog = true">
+              <el-icon><Setting /></el-icon>
+              设置
+            </el-button>
+
             <el-button text class="theme-btn" @click="toggleTheme">
               <el-icon><Moon /></el-icon>
               <span>主题</span>
@@ -99,6 +104,15 @@
     >
       <NewDownloadForm @success="onDownloadSuccess" @cancel="showNewDownloadDialog = false" />
     </el-dialog>
+
+    <!-- 设置对话框（全局） -->
+    <el-dialog
+      v-model="showSettingsDialog"
+      title="下载设置"
+      width="500px"
+    >
+      <DownloadSettingsForm @success="onSettingsSaved" @cancel="showSettingsDialog = false" />
+    </el-dialog>
     
     <!-- 登录对话框 - 只使用B站二维码登录 -->
     <el-dialog
@@ -149,12 +163,13 @@
 import { ref, computed, reactive, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Loading } from '@element-plus/icons-vue'
+import { Loading, Setting } from '@element-plus/icons-vue'
 import QRCode from 'qrcode'
 import { useUserStore } from '@/stores/user'
 import { useDownloadStore } from '@/stores/download'
 import { api } from '@/utils/api'
 import NewDownloadForm from '@/components/download/NewDownloadForm.vue'
+import DownloadSettingsForm from '@/components/download/SettingsForm.vue'
 import GlobalNotification from '@/components/common/GlobalNotification.vue'
 
 const route = useRoute()
@@ -164,6 +179,7 @@ const downloadStore = useDownloadStore()
 
 // 状态
 const showNewDownloadDialog = ref(false)
+const showSettingsDialog = ref(false)
 const showLoginDialog = ref(false)
 
 // B站二维码登录状态
@@ -224,6 +240,16 @@ const toggleTheme = () => {
 
 const onDownloadSuccess = () => {
   showNewDownloadDialog.value = false
+}
+
+const onSettingsSaved = async () => {
+  showSettingsDialog.value = false
+  try {
+    await downloadStore.fetchTasks()
+    await downloadStore.fetchStats()
+  } catch (error) {
+    console.warn('刷新任务列表失败:', error)
+  }
 }
 
 // B站二维码登录方法
@@ -451,6 +477,7 @@ onUnmounted(() => {
       .header-right {
         display: flex;
         align-items: center;
+        flex-wrap: wrap;
         gap: 16px;
         
         .user-avatar-wrap {
@@ -498,8 +525,8 @@ onUnmounted(() => {
     }
     
     .main-content {
-      padding: 20px;
-      background-color: #f5f5f5;
+      padding: 0;
+      background-color: #fff;
       overflow-y: auto;
     }
     

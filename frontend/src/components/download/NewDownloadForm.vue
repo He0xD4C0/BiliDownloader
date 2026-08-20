@@ -54,17 +54,35 @@
           </div>
         </div>
         
-        <!-- 分P选择 -->
-        <div v-if="videoInfo.pages && videoInfo.pages.length > 1" class="video-pages">
+        <!-- 分P批量选择 -->
+        <div v-if="isMultiPageVideo" class="video-pages">
           <el-form-item label="选择分P">
-            <el-select v-model="form.selectedPage" placeholder="请选择分P">
-              <el-option
-                v-for="page in videoInfo.pages"
-                :key="page.cid"
-                :label="`P${page.page} ${page.title}`"
-                :value="page"
-              />
-            </el-select>
+            <div class="page-selector">
+              <div class="page-selector-header">
+                <span class="page-count">共 {{ videoInfo.pages.length }} 个分P，已选 {{ form.selectedPages.length }} 个</span>
+                <el-checkbox
+                  :model-value="allPagesSelected"
+                  :indeterminate="somePagesSelected"
+                  @change="toggleSelectAllPages"
+                >
+                  全选
+                </el-checkbox>
+              </div>
+              <div class="page-list">
+                <el-checkbox-group v-model="form.selectedPages" class="page-checkbox-group">
+                  <el-checkbox
+                    v-for="page in videoInfo.pages"
+                    :key="page.cid"
+                    :value="page"
+                    class="page-checkbox"
+                  >
+                    <span class="page-label">P{{ page.page }}</span>
+                    <span class="page-title">{{ page.title || `第${page.page}P` }}</span>
+                    <span class="page-duration">{{ formatDuration(page.duration) }}</span>
+                  </el-checkbox>
+                </el-checkbox-group>
+              </div>
+            </div>
           </el-form-item>
         </div>
       </div>
@@ -153,9 +171,9 @@
           type="primary"
           @click="handleSubmit"
           :loading="submitting"
-          :disabled="!form.url || !videoInfo"
+          :disabled="!form.url || !videoInfo || (isMultiPageVideo && form.selectedPages.length === 0)"
         >
-          开始下载
+          开始下载<span v-if="form.selectedPages.length > 1">（{{ form.selectedPages.length }}）</span>
         </el-button>
       </el-form-item>
     </el-form>
@@ -194,7 +212,7 @@ const ALL_AUDIO_QUALITIES = [
 const form = reactive({
   url: '',
   quality: 80 as number | null, // 解析后选择最高可用画质
-  selectedPage: null as any,
+  selectedPages: [] as any[], // 选中的分P列表（含 cid/title/page）
   downloadPath: downloadStore.settings.default_download_path,
   filenameTemplate: '{title}_{quality}',
   autoMerge: true,
@@ -229,6 +247,15 @@ const availableAudioQualities = computed(() => {
 // 是否开启音频选项
 const audioEnabled = computed(() => loginStatus.value >= 1)
 
+// 是否为多分P视频
+const isMultiPageVideo = computed(() => !!(videoInfo.value?.pages && videoInfo.value.pages.length > 1))
+
+// 是否已全选分P
+const allPagesSelected = computed(() => isMultiPageVideo.value && form.selectedPages.length === videoInfo.value.pages.length)
+
+// 是否部分选择分P（用于"全选"复选框的半选状态）
+const somePagesSelected = computed(() => form.selectedPages.length > 0 && !allPagesSelected.value)
+
 // 计算属性 - 画质分组（基于videoInfo里的available_qualities）
 const qualityGroups = computed(() => {
   if (!videoInfo.value) return []
@@ -257,7 +284,7 @@ const qualityGroups = computed(() => {
 // 方法
 const handleUrlChange = () => {
   videoInfo.value = null
-  form.selectedPage = null
+  form.selectedPages = []
 }
 
 // 检测B站登录状态；凭证由 Electron 主进程安全保存并自动使用。
@@ -310,9 +337,9 @@ const parseUrl = async () => {
     loginStatusText.value = loginStatus.value >= 2 ? '大会员' : loginStatus.value >= 1 ? '已登录' : '未登录'
     videoInfo.value = videoResponse
     
-    // 默认选择第一个分P
+    // 默认全选分P，方便批量下载
     if (videoInfo.value.pages && videoInfo.value.pages.length > 0) {
-      form.selectedPage = videoInfo.value.pages[0]
+      form.selectedPages = [...videoInfo.value.pages]
     }
     
     // 默认选择当前解析结果中的最高可用画质。
@@ -333,6 +360,10 @@ const parseUrl = async () => {
   } finally {
     parsingUrl.value = false
   }
+}
+
+const toggleSelectAllPages = (checked: boolean | string | number) => {
+  form.selectedPages = checked ? [...videoInfo.value.pages] : []
 }
 
 const selectDownloadPath = async () => {
@@ -379,14 +410,18 @@ const handleSubmit = async () => {
   submitting.value = true
   
   try {
-    // 获取选择的页面
-    const page = form.selectedPage || videoInfo.value.pages?.[0]
+    // 选中的分P（多P默认全选，单P默认第一个）
+    const pages = videoInfo.value.pages || []
+    const selectedPages = form.selectedPages.length > 0 ? form.selectedPages : (pages.length ? [pages[0]] : [])
+    if (!selectedPages.length) {
+      ElMessage.warning('请至少选择一个分P')
+      return
+    }
     
     // 准备下载数据；登录凭证和会员状态由 Electron 主进程决定。
-    const downloadData = {
+    const common = {
       bvid: videoInfo.value.bvid,
       aid: videoInfo.value.aid,
-      cid: page?.cid || videoInfo.value.cid,
       quality: form.quality ?? undefined,
       audio_quality: form.audioQuality,
       auto_merge: form.autoMerge,
@@ -394,10 +429,18 @@ const handleSubmit = async () => {
       download_path: form.downloadPath
     }
     
-    // 开始下载
-    await downloadStore.startDownload(downloadData)
-    
-    ElMessage.success('下载任务已创建')
+    if (selectedPages.length === 1) {
+      // 单个分P：走单任务下载
+      await downloadStore.startDownload({ ...common, cid: selectedPages[0].cid || videoInfo.value.cid })
+      ElMessage.success('下载任务已创建')
+    } else {
+      // 多个分P：批量创建下载任务
+      const response = await downloadStore.startBatchDownload({
+        ...common,
+        cids: selectedPages.map((page: any) => page.cid)
+      })
+      ElMessage.success(response?.message || `已创建 ${selectedPages.length} 个下载任务`)
+    }
     emit('success')
   } catch (error: any) {
     console.error('创建下载任务失败:', error)
@@ -495,6 +538,78 @@ onMounted(async () => {
       margin-top: 16px;
       padding-top: 16px;
       border-top: 1px solid #e6e6e6;
+    }
+
+    .page-selector {
+      width: 100%;
+
+      .page-selector-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 8px;
+
+        .page-count {
+          font-size: 12px;
+          color: #909399;
+        }
+      }
+
+      .page-list {
+        max-height: 220px;
+        overflow-y: auto;
+        border: 1px solid #e6e6e6;
+        border-radius: 6px;
+        padding: 8px 12px;
+        background-color: #fff;
+
+        .page-checkbox-group {
+          display: flex;
+          flex-direction: column;
+          align-items: flex-start;
+
+          .page-checkbox {
+            height: auto;
+            width: 100%;
+            margin-right: 0;
+            padding: 6px 4px;
+            border-bottom: 1px dashed #f0f0f0;
+
+            &:last-child {
+              border-bottom: none;
+            }
+
+            :deep(.el-checkbox__label) {
+              display: flex;
+              align-items: center;
+              gap: 8px;
+              min-width: 0;
+              flex: 1;
+
+              .page-label {
+                flex-shrink: 0;
+                font-weight: 500;
+                color: #409EFF;
+                min-width: 32px;
+              }
+
+              .page-title {
+                flex: 1;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+                color: #303133;
+              }
+
+              .page-duration {
+                flex-shrink: 0;
+                font-size: 12px;
+                color: #909399;
+              }
+            }
+          }
+        }
+      }
     }
   }
   

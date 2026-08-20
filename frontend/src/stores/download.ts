@@ -42,6 +42,10 @@ export interface DownloadSettings {
   default_quality: string
   default_format: string
   max_concurrent_downloads: number
+  download_speed_limit: number
+  slow_speed_auto_pause: boolean
+  slow_speed_threshold_kbps: number
+  slow_speed_grace_seconds: number
   auto_merge: boolean
   delete_temp_files: boolean
   proxy_enabled: boolean
@@ -52,14 +56,18 @@ export const useDownloadStore = defineStore('download', () => {
   // 状态
   const tasks: Ref<DownloadTask[]> = ref([])
   const activeTasks: Ref<number> = ref(0)
-  const maxConcurrentDownloads: Ref<number> = ref(3)
+  const maxConcurrentDownloads: Ref<number> = ref(4)
   const downloadSpeed: Ref<number> = ref(0)
   const stats: Ref<DownloadStats | null> = ref(null)
   const settings: Ref<DownloadSettings> = ref({
     default_download_path: './downloads',
     default_quality: '1080p',
     default_format: 'mp4',
-    max_concurrent_downloads: 3,
+    max_concurrent_downloads: 4,
+    download_speed_limit: 0,
+    slow_speed_auto_pause: true,
+    slow_speed_threshold_kbps: 50,
+    slow_speed_grace_seconds: 15,
     auto_merge: true,
     delete_temp_files: true,
     proxy_enabled: false,
@@ -161,6 +169,32 @@ export const useDownloadStore = defineStore('download', () => {
     }
   }
   
+  const startBatchDownload = async (downloadData: {
+    bvid?: string
+    aid?: number
+    cids: number[]
+    quality?: number
+    audio_quality?: number | null
+    download_path?: string
+    auto_merge?: boolean
+    delete_temp_files?: boolean
+  }) => {
+    try {
+      const response = await api.post('/download/start-batch', downloadData)
+
+      // 批量创建的任务逐个插入任务列表（倒序 unshift，保证 P1 在最前）
+      const created = response.tasks || []
+      for (let i = created.length - 1; i >= 0; i--) {
+        tasks.value.unshift(created[i])
+      }
+
+      return response
+    } catch (error) {
+      console.error('批量创建下载任务失败:', error)
+      throw error
+    }
+  }
+
   const pauseDownload = async (taskId: string) => {
     try {
       const response = await api.post(`/download/pause/${taskId}`)
@@ -235,6 +269,7 @@ export const useDownloadStore = defineStore('download', () => {
     try {
       const response = await api.get('/download/settings')
       settings.value = response
+      maxConcurrentDownloads.value = response.max_concurrent_downloads ?? 4
       return response
     } catch (error) {
       console.error('获取下载设置失败:', error)
@@ -246,6 +281,7 @@ export const useDownloadStore = defineStore('download', () => {
     try {
       const response = await api.post('/download/settings', newSettings)
       settings.value = { ...settings.value, ...response }
+      maxConcurrentDownloads.value = response.max_concurrent_downloads ?? maxConcurrentDownloads.value
       return response
     } catch (error) {
       console.error('更新下载设置失败:', error)
@@ -276,7 +312,6 @@ export const useDownloadStore = defineStore('download', () => {
       } else {
         tasks.value[index] = { ...tasks.value[index], ...updatedTask }
       }
-      fetchStats().catch(error => console.error('更新下载统计失败:', error))
     })
   }
   
@@ -303,6 +338,7 @@ export const useDownloadStore = defineStore('download', () => {
     fetchTasks,
     fetchTask,
     startDownload,
+    startBatchDownload,
     pauseDownload,
     resumeDownload,
     cancelDownload,

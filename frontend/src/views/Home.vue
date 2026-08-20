@@ -1,90 +1,100 @@
 <template>
   <div class="home">
-    <!-- 统计卡片 -->
-    <div class="stats-cards">
-      <el-card class="stat-card">
-        <div class="stat-content">
-          <div class="stat-icon downloading">
-            <el-icon><Download /></el-icon>
-          </div>
-          <div class="stat-info">
-            <div class="stat-value">{{ stats.downloading_tasks || 0 }}</div>
-            <div class="stat-label">下载中</div>
-          </div>
+    <!-- 统计条：四个分区横向一排，分割线区分，无卡片样式 -->
+    <div class="stat-strip">
+      <div class="stat-cell">
+        <div class="stat-icon downloading">
+          <el-icon><Download /></el-icon>
         </div>
-      </el-card>
-
-      <el-card class="stat-card">
-        <div class="stat-content">
-          <div class="stat-icon pending">
-            <el-icon><Clock /></el-icon>
-          </div>
-          <div class="stat-info">
-            <div class="stat-value">{{ stats.pending_tasks || 0 }}</div>
-            <div class="stat-label">等待中</div>
-          </div>
+        <div class="stat-info">
+          <div class="stat-value">{{ stats.downloading_tasks || 0 }}</div>
+          <div class="stat-label">下载中</div>
         </div>
-      </el-card>
-
-      <el-card class="stat-card">
-        <div class="stat-content">
-          <div class="stat-icon completed">
-            <el-icon><CircleCheck /></el-icon>
-          </div>
-          <div class="stat-info">
-            <div class="stat-value">{{ stats.completed_tasks || 0 }}</div>
-            <div class="stat-label">已完成</div>
-          </div>
+      </div>
+      <div class="stat-cell">
+        <div class="stat-icon pending">
+          <el-icon><Clock /></el-icon>
         </div>
-      </el-card>
-
-      <el-card class="stat-card">
-        <div class="stat-content">
-          <div class="stat-icon total">
-            <el-icon><Folder /></el-icon>
-          </div>
-          <div class="stat-info">
-            <div class="stat-value">{{ stats.total_tasks || 0 }}</div>
-            <div class="stat-label">总任务</div>
-          </div>
+        <div class="stat-info">
+          <div class="stat-value">{{ stats.pending_tasks || 0 }}</div>
+          <div class="stat-label">等待中</div>
         </div>
-      </el-card>
+      </div>
+      <div class="stat-cell">
+        <div class="stat-icon completed">
+          <el-icon><CircleCheck /></el-icon>
+        </div>
+        <div class="stat-info">
+          <div class="stat-value">{{ stats.completed_tasks || 0 }}</div>
+          <div class="stat-label">已完成</div>
+        </div>
+      </div>
+      <div class="stat-cell">
+        <div class="stat-icon total">
+          <el-icon><Folder /></el-icon>
+        </div>
+        <div class="stat-info">
+          <div class="stat-value">{{ stats.total_tasks || 0 }}</div>
+          <div class="stat-label">总任务</div>
+        </div>
+      </div>
     </div>
 
-    <!-- 任务列表 -->
-    <el-card class="tasks-card">
-      <template #header>
-        <div class="card-header">
-          <div class="card-title-row">
-            <h3>下载任务</h3>
-            <div class="card-actions">
-              <el-button size="small" @click="showNewDownloadDialog = true">
-                <el-icon><Plus /></el-icon>
-                新建下载
-              </el-button>
-              <el-button size="small" @click="refreshTasks">
-                <el-icon><Refresh /></el-icon>
-                刷新
-              </el-button>
-              <el-button size="small" @click="showSettingsDialog = true">
-                <el-icon><Setting /></el-icon>
-                设置
-              </el-button>
-            </div>
-          </div>
-          <!-- 3个筛选标签：互斥，默认不选择 -->
-          <div class="filter-tags">
-            <el-radio-group v-model="filterStatus" size="small">
-              <el-radio-button value="">全部</el-radio-button>
-              <el-radio-button value="downloading">下载中</el-radio-button>
-              <el-radio-button value="pending">排队中</el-radio-button>
-              <el-radio-button value="completed">已完成</el-radio-button>
-            </el-radio-group>
+    <!-- 任务区 -->
+    <div class="tasks-section">
+      <div class="tasks-header">
+        <div class="header-title-row">
+          <h3>下载任务</h3>
+          <div class="header-actions">
+            <ConcurrencyControl
+              v-model="downloadStore.settings.max_concurrent_downloads"
+              class="quick-control"
+            />
+            <SpeedLimitControl
+              v-model="downloadStore.settings.download_speed_limit"
+              class="quick-control"
+            />
+            <el-button size="small" @click="refreshTasks">
+              <el-icon><Refresh /></el-icon>
+              刷新
+            </el-button>
           </div>
         </div>
-      </template>
+        <!-- 4个筛选标签：互斥，默认不选择 -->
+        <div class="filter-tags">
+          <el-radio-group v-model="filterStatus" size="small">
+            <el-radio-button value="">全部</el-radio-button>
+            <el-radio-button value="downloading">下载中</el-radio-button>
+            <el-radio-button value="pending">排队中</el-radio-button>
+            <el-radio-button value="completed">已完成</el-radio-button>
+          </el-radio-group>
+        </div>
+      </div>
 
-      <el-table :data="displayTasks" style="width: 100%" @selection-change="onSelectionChange">
+      <!-- 表格上方操作栏：全量操作 + 选中操作 -->
+      <div v-if="tasks.length > 0" class="batch-toolbar">
+        <div class="toolbar-group">
+          <span class="toolbar-label">全量操作</span>
+          <el-button size="small" @click="startAllTasks" :disabled="!canStartAll">全部开始</el-button>
+          <el-button size="small" @click="pauseAllTasks" :disabled="!canPauseAll">全部暂停</el-button>
+          <el-button size="small" type="danger" plain @click="pauseAndDeleteAllTasks">全部暂停并删除</el-button>
+          <el-button size="small" @click="deleteCompletedTasks" :disabled="!hasCompletedTasks">删除已完成</el-button>
+        </div>
+        <div v-if="selectedTasks.length > 0" class="toolbar-group selection-group">
+          <span class="toolbar-label">已选 {{ selectedTasks.length }}</span>
+          <el-button size="small" @click="pauseSelectedTasks" :disabled="!hasDownloadingSelected">暂停选中</el-button>
+          <el-button size="small" @click="resumeSelectedTasks" :disabled="!hasPausedSelected">开始选中</el-button>
+          <el-button size="small" type="danger" plain @click="deleteSelectedTasks">删除选中</el-button>
+          <el-button size="small" text @click="clearSelection">取消选择</el-button>
+        </div>
+      </div>
+
+      <el-table
+        :data="displayTasks"
+        style="width: 100%"
+        class="flat-table"
+        @selection-change="onSelectionChange"
+      >
         <el-table-column type="selection" width="50" />
         <el-table-column prop="title" label="视频标题" min-width="300">
           <template #default="{ row }">
@@ -191,7 +201,7 @@
         </el-empty>
       </div>
 
-      <div class="pagination-wrapper">
+      <div class="pagination-bar">
         <el-pagination
           v-model:current-page="currentPage"
           v-model:page-size="pageSize"
@@ -202,29 +212,6 @@
           @current-change="handlePageChange"
         />
       </div>
-    </el-card>
-
-    <!-- 批量操作 -->
-    <div class="batch-actions" v-if="selectedTasks.length > 0">
-      <el-card>
-        <div class="batch-content">
-          <span>已选择 {{ selectedTasks.length }} 个任务</span>
-          <div class="batch-buttons">
-            <el-button size="small" @click="pauseSelectedTasks" :disabled="!hasDownloadingSelected">
-              暂停选中
-            </el-button>
-            <el-button size="small" @click="resumeSelectedTasks" :disabled="!hasPausedSelected">
-              继续选中
-            </el-button>
-            <el-button size="small" @click="deleteSelectedTasks" type="danger">
-              删除选中
-            </el-button>
-            <el-button size="small" @click="clearSelection">
-              取消选择
-            </el-button>
-          </div>
-        </div>
-      </el-card>
     </div>
 
     <!-- 删除任务确认对话框 -->
@@ -254,30 +241,22 @@
       <NewDownloadForm @success="onDownloadSuccess" @cancel="showNewDownloadDialog = false" />
     </el-dialog>
 
-    <!-- 设置对话框 -->
-    <el-dialog
-      v-model="showSettingsDialog"
-      title="下载设置"
-      width="500px"
-    >
-      <DownloadSettingsForm @success="onSettingsSaved" @cancel="showSettingsDialog = false" />
-    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
-import { ElMessage } from 'element-plus'
-import { Download, Clock, CircleCheck, Folder, Plus, Refresh, Setting } from '@element-plus/icons-vue'
+import { ref, computed, onMounted, watch } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { Download, Clock, CircleCheck, Folder, Refresh } from '@element-plus/icons-vue'
 import { useDownloadStore } from '@/stores/download'
 import NewDownloadForm from '@/components/download/NewDownloadForm.vue'
-import DownloadSettingsForm from '@/components/download/SettingsForm.vue'
+import ConcurrencyControl from '@/components/download/ConcurrencyControl.vue'
+import SpeedLimitControl from '@/components/download/SpeedLimitControl.vue'
 
 const downloadStore = useDownloadStore()
 
 // 状态
 const showNewDownloadDialog = ref(false)
-const showSettingsDialog = ref(false)
 const filterStatus = ref('') // 空字符串 = 全部（不筛选）
 const currentPage = ref(1)
 const pageSize = ref(20)
@@ -296,38 +275,53 @@ const tasks = computed(() => downloadStore.tasks)
  * - 筛选时：只保留该状态的任务，按创建时间倒序
  */
 const displayTasks = computed(() => {
-  let filtered = tasks.value
+  const filtered = tasks.value.slice()
 
   if (filterStatus.value) {
-    // 筛选状态：只显示该状态，按创建时间倒序
-    filtered = filtered.filter(task => task.status === filterStatus.value)
-    filtered.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-  } else {
-    // 不筛选：全部显示，按 下载中 > 排队中 > 已完成 排序，同组内按创建时间倒序
-    const statusOrder: Record<string, number> = {
-      'downloading': 0,
-      'pending': 1,
-      'paused': 1,
-      'completed': 2,
-      'failed': 2,
-      'cancelled': 2
-    }
-    filtered.sort((a, b) => {
-      const orderA = statusOrder[a.status] ?? 99
-      const orderB = statusOrder[b.status] ?? 99
-      if (orderA !== orderB) return orderA - orderB
-      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-    })
+    return filtered
+      .filter(task => task.status === filterStatus.value)
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
   }
 
-  return filtered
+  const statusOrder: Record<string, number> = {
+    'downloading': 0,
+    'pending': 1,
+    'paused': 1,
+    'completed': 2,
+    'failed': 2,
+    'cancelled': 2
+  }
+  return filtered.sort((a, b) => {
+    const orderA = statusOrder[a.status] ?? 99
+    const orderB = statusOrder[b.status] ?? 99
+    if (orderA !== orderB) return orderA - orderB
+    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  })
 })
 
 const totalTasks = computed(() => displayTasks.value.length)
-const deleteDialogTitle = computed(() => pendingDeleteTaskIds.value.length > 1 ? '删除选中任务' : '删除任务')
-const deleteDialogMessage = computed(() => pendingDeleteTaskIds.value.length > 1
-  ? `确定删除选中的 ${pendingDeleteTaskIds.value.length} 条任务记录吗？`
-  : '确定删除此任务记录吗？')
+
+// 删除对话框：区分"全部暂停并删除"与"选中/单个删除"的文案
+const isDeletingAll = computed(() => {
+  return tasks.value.length > 0 && pendingDeleteTaskIds.value.length === tasks.value.length
+})
+
+const deleteDialogTitle = computed(() => {
+  if (pendingDeleteTaskIds.value.length === 0) return '删除任务'
+  if (isDeletingAll.value) return '暂停并删除全部任务'
+  return pendingDeleteTaskIds.value.length > 1 ? '删除选中任务' : '删除任务'
+})
+
+const deleteDialogMessage = computed(() => {
+  if (pendingDeleteTaskIds.value.length === 0) return ''
+  if (isDeletingAll.value) {
+    return `将中止全部下载并删除全部 ${pendingDeleteTaskIds.value.length} 条任务记录，确定继续吗？`
+  }
+  if (pendingDeleteTaskIds.value.length > 1) {
+    return `确定删除选中的 ${pendingDeleteTaskIds.value.length} 条任务记录吗？`
+  }
+  return '确定删除此任务记录吗？'
+})
 
 const stats = computed(() => ({
   downloading_tasks: downloadStore.downloadingTasks.length,
@@ -337,6 +331,17 @@ const stats = computed(() => ({
   failed_tasks: downloadStore.failedTasks.length,
   paused_tasks: downloadStore.pausedTasks.length
 }))
+
+// 全量操作可用性
+const canStartAll = computed(() =>
+  tasks.value.some(task => task.status === 'paused' || task.status === 'failed')
+)
+const canPauseAll = computed(() =>
+  tasks.value.some(task => ['downloading', 'pending', 'merging'].includes(task.status))
+)
+const hasCompletedTasks = computed(() =>
+  tasks.value.some(task => task.status === 'completed')
+)
 
 const hasDownloadingSelected = computed(() => {
   return selectedTasks.value.some(taskId => {
@@ -498,6 +503,71 @@ const onSelectionChange = (selection: any[]) => {
   selectedTasks.value = selection.map((item: any) => item.task_id)
 }
 
+// ---- 全量操作 ----
+const startAllTasks = async () => {
+  const ids = tasks.value
+    .filter(task => task.status === 'paused' || task.status === 'failed')
+    .map(task => task.task_id)
+  if (!ids.length) return
+  try {
+    let done = 0
+    for (const taskId of ids) {
+      await downloadStore.resumeDownload(taskId)
+      done += 1
+    }
+    await downloadStore.fetchStats()
+    ElMessage.success(`已开始 ${done} 个任务`)
+  } catch (error) {
+    ElMessage.error('全部开始失败')
+  }
+}
+
+const pauseAllTasks = async () => {
+  const ids = tasks.value
+    .filter(task => ['downloading', 'pending', 'merging'].includes(task.status))
+    .map(task => task.task_id)
+  if (!ids.length) return
+  try {
+    let done = 0
+    for (const taskId of ids) {
+      await downloadStore.pauseDownload(taskId)
+      done += 1
+    }
+    await downloadStore.fetchStats()
+    ElMessage.success(`已暂停 ${done} 个任务`)
+  } catch (error) {
+    ElMessage.error('全部暂停失败')
+  }
+}
+
+const pauseAndDeleteAllTasks = () => {
+  pendingDeleteTaskIds.value = tasks.value.map(task => task.task_id)
+  deleteFiles.value = false
+  showDeleteDialog.value = true
+}
+
+const deleteCompletedTasks = async () => {
+  try {
+    await ElMessageBox.confirm('确定删除全部已完成的任务记录吗？', '删除已完成', {
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+  } catch (error) {
+    return // 用户取消
+  }
+
+  try {
+    const response = await downloadStore.clearCompletedTasks()
+    await downloadStore.fetchStats()
+    ElMessage.success(response?.message || '已完成任务记录已删除')
+  } catch (error) {
+    console.error('删除已完成任务失败:', error)
+    ElMessage.error('删除已完成任务失败')
+  }
+}
+
+// ---- 选中操作 ----
 const pauseSelectedTasks = async () => {
   try {
     for (const taskId of selectedTasks.value) {
@@ -520,9 +590,9 @@ const resumeSelectedTasks = async () => {
         await downloadStore.resumeDownload(taskId)
       }
     }
-    ElMessage.success('选中任务已恢复')
+    ElMessage.success('选中任务已开始')
   } catch (error) {
-    ElMessage.error('恢复失败')
+    ElMessage.error('开始失败')
   }
 }
 
@@ -541,31 +611,9 @@ const onDownloadSuccess = () => {
   refreshTasks()
 }
 
-const onSettingsSaved = () => {
-  showSettingsDialog.value = false
-  refreshTasks()
-}
-
-// 定时器引用
-let autoRefreshTimer: ReturnType<typeof setInterval> | null = null
-
 // 生命周期
 onMounted(async () => {
   await refreshTasks()
-
-  // 设置定时刷新（有下载中任务时每5秒刷新一次）
-  autoRefreshTimer = setInterval(async () => {
-    if (stats.value.downloading_tasks > 0) {
-      await downloadStore.fetchTasks()
-      await downloadStore.fetchStats()
-    }
-  }, 5000)
-})
-
-onUnmounted(() => {
-  if (autoRefreshTimer) {
-    clearInterval(autoRefreshTimer)
-  }
 })
 
 // 监听状态变化
@@ -581,65 +629,80 @@ watch(
 
 <style lang="scss" scoped>
 .home {
-  padding: 20px;
+  padding: 0;
+  background-color: #fff;
+  min-height: 100%;
 
-  .stats-cards {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 16px;
-    margin-bottom: 24px;
+  // 统计条：四个分区横向一排，仅用分割线区分，无卡片样式
+  .stat-strip {
+    display: flex;
+    background-color: #fff;
+    border-bottom: 1px solid #e6e6e6;
 
-    .stat-card {
-      .stat-content {
+    .stat-cell {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 20px 24px;
+      border-right: 1px solid #e6e6e6;
+
+      &:last-child {
+        border-right: none;
+      }
+
+      .stat-icon {
+        width: 44px;
+        height: 44px;
+        border-radius: 6px;
         display: flex;
         align-items: center;
-        gap: 16px;
+        justify-content: center;
 
-        .stat-icon {
-          width: 48px;
-          height: 48px;
-          border-radius: 8px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
+        &.downloading { background-color: #409EFF; }
+        &.pending { background-color: #E6A23C; }
+        &.completed { background-color: #67C23A; }
+        &.total { background-color: #909399; }
 
-          &.downloading { background-color: #409EFF; }
-          &.pending { background-color: #E6A23C; }
-          &.completed { background-color: #67C23A; }
-          &.total { background-color: #909399; }
+        .el-icon {
+          font-size: 22px;
+          color: #fff;
+        }
+      }
 
-          .el-icon {
-            font-size: 24px;
-            color: white;
-          }
+      .stat-info {
+        .stat-value {
+          font-size: 24px;
+          font-weight: bold;
+          line-height: 1.2;
+          color: #303133;
         }
 
-        .stat-info {
-          .stat-value {
-            font-size: 24px;
-            font-weight: bold;
-            color: #303133;
-          }
-
-          .stat-label {
-            font-size: 14px;
-            color: #909399;
-          }
+        .stat-label {
+          font-size: 14px;
+          color: #909399;
         }
       }
     }
   }
 
-  .tasks-card {
-    .card-header {
+  // 任务区
+  .tasks-section {
+    background-color: #fff;
+
+    .tasks-header {
       display: flex;
       flex-direction: column;
       gap: 12px;
+      padding: 14px 24px;
+      border-bottom: 1px solid #e6e6e6;
 
-      .card-title-row {
+      .header-title-row {
         display: flex;
         align-items: center;
         justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 12px;
 
         h3 {
           margin: 0;
@@ -647,9 +710,15 @@ watch(
           color: #303133;
         }
 
-        .card-actions {
+        .header-actions {
           display: flex;
+          align-items: center;
+          flex-wrap: wrap;
           gap: 8px;
+
+          .quick-control {
+            margin-right: 4px;
+          }
         }
       }
 
@@ -665,110 +734,85 @@ watch(
       }
     }
 
-    .video-info {
+    // 表格上方操作栏
+    .batch-toolbar {
       display: flex;
       align-items: center;
-      gap: 12px;
+      flex-wrap: wrap;
+      gap: 8px 24px;
+      padding: 8px 24px;
+      border-bottom: 1px solid #e6e6e6;
+      background-color: #fff;
 
-      .video-cover {
-        width: 80px;
-        height: 45px;
-        border-radius: 4px;
-        overflow: hidden;
-        flex-shrink: 0;
-      }
+      .toolbar-group {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 8px;
 
-      .video-details {
-        flex: 1;
-
-        .video-title {
-          margin: 0 0 4px;
-          font-size: 14px;
-          font-weight: 500;
-          color: #303133;
-          line-height: 1.4;
-          display: -webkit-box;
-          -webkit-line-clamp: 2;
-          -webkit-box-orient: vertical;
-          overflow: hidden;
+        &.selection-group {
+          padding-left: 24px;
+          border-left: 1px solid #e6e6e6;
         }
 
-        .video-meta {
-          display: flex;
-          align-items: center;
-          gap: 8px;
+        .toolbar-label {
           font-size: 12px;
-          color: #606266;
-
-          .meta-item {
-            display: flex;
-            align-items: center;
-          }
+          color: #909399;
+          white-space: nowrap;
         }
       }
     }
 
-    .progress-cell {
-      .progress-text {
-        margin-top: 4px;
-        font-size: 12px;
-        color: #909399;
-        text-align: center;
+    // 扁平化表格：自身不再有外框，仅保留表头/行发丝线
+    .flat-table {
+      :deep(.el-table) {
+        border: none;
       }
-    }
 
-    .action-buttons {
-      display: flex;
-      gap: 8px;
-    }
-
-    .pagination-wrapper {
-      margin-top: 16px;
-      display: flex;
-      justify-content: center;
+      :deep(.el-table__inner-wrapper) {
+        border-bottom: none;
+        border-right: none;
+      }
     }
 
     .empty-state {
       padding: 40px 0;
     }
-  }
 
-  .batch-actions {
-    margin-top: 16px;
-
-    .batch-content {
+    .pagination-bar {
+      border-top: 1px solid #e6e6e6;
+      padding: 12px 24px;
       display: flex;
-      align-items: center;
-      justify-content: space-between;
-
-      .batch-buttons {
-        display: flex;
-        gap: 8px;
-      }
+      justify-content: center;
     }
   }
 }
 
-// 响应式设计
-@media (max-width: 1200px) {
-  .stats-cards {
-    grid-template-columns: repeat(2, 1fr) !important;
-  }
-}
-
+// 响应式：统计条始终保持一行四列，仅收缩单元格内边距
 @media (max-width: 768px) {
-  .stats-cards {
-    grid-template-columns: 1fr !important;
-  }
+  .home {
+    .stat-cell {
+      gap: 8px;
+      padding: 14px 12px;
 
-  .card-title-row {
-    flex-direction: column;
-    align-items: flex-start !important;
-    gap: 12px;
-  }
+      .stat-icon {
+        width: 34px;
+        height: 34px;
+      }
 
-  .card-actions {
-    flex-wrap: wrap;
+      .stat-info .stat-value {
+        font-size: 20px;
+      }
+    }
+
+    .tasks-header .header-title-row {
+      flex-direction: column;
+      align-items: flex-start !important;
+    }
+
+    .header-actions {
+      flex-wrap: wrap;
+    }
   }
 }
 </style>

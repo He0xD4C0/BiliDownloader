@@ -52,15 +52,33 @@ function serializeError(error) {
   return error instanceof Error ? error.message : String(error)
 }
 
+async function fetchWithTimeout(url, options = {}, timeoutMs = 30000) {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(new Error(`请求超时（${timeoutMs / 1000}秒）`)), timeoutMs)
+  const userSignal = options.signal
+  const onUserAbort = () => controller.abort()
+  if (userSignal) userSignal.addEventListener('abort', onUserAbort, { once: true })
+  try {
+    return await fetch(url, { ...options, signal: controller.signal })
+  } finally {
+    clearTimeout(timer)
+    if (userSignal) userSignal.removeEventListener('abort', onUserAbort)
+  }
+}
+
 class ApplicationService extends EventEmitter {
   constructor() {
     super()
     this.tasks = []
+    this._tasksById = new Map()
     this.controllers = new Map()
     this.currentUser = null
     this.bilibiliCookies = {}
     this.settings = null
     this.statePath = null
+    this.downloadQueue = []
+    this.activeDownloads = 0
+    this.slowTrackers = new Map() // task_id -> { window: [[t, bytes]...], slowSince }
   }
 
   initialize() {
@@ -73,7 +91,11 @@ class ApplicationService extends EventEmitter {
       default_download_path: downloadDirectory,
       default_quality: '1080p',
       default_format: 'mp4',
-      max_concurrent_downloads: 3,
+      max_concurrent_downloads: 4,
+      download_speed_limit: 0, // 单线程限速 KB/s，0=不限速
+      slow_speed_threshold_kbps: 50, // 低速自动暂停阈值 KB/s，0=关闭
+      slow_speed_grace_seconds: 15, // 持续低速多久后自动暂停（秒）
+      slow_speed_auto_pause: true, // 低速自动暂停总开关
       auto_merge: true,
       delete_temp_files: true,
       proxy_enabled: false,
@@ -90,6 +112,17 @@ class ApplicationService extends EventEmitter {
       if (error.code !== 'ENOENT') console.warn('读取应用状态失败:', error)
     }
 
+    let reaped = 0
+    for (const task of this.tasks) {
+      if (task.status === 'downloading' || task.status === 'pending') {
+        task.status = 'paused'
+        task.updated_at = new Date().toISOString()
+        reaped += 1
+      }
+    }
+    if (reaped) console.info(`已将 ${reaped} 个中断的下载任务标记为已暂停`)
+
+    this._tasksById = new Map(this.tasks.map(task => [task.task_id, task]))
     this.removeExpiredTaskRecords()
     fs.mkdirSync(this.settings.default_download_path, { recursive: true })
     this.persist()
@@ -103,7 +136,10 @@ class ApplicationService extends EventEmitter {
       return !Number.isFinite(timestamp) || timestamp >= cutoff
     })
     const removed = before - this.tasks.length
-    if (removed) console.info(`已自动清理 ${removed} 条超过30天的任务记录`)
+    if (removed) {
+      console.info(`已自动清理 ${removed} 条超过30天的任务记录`)
+      this._tasksById = new Map(this.tasks.map(task => [task.task_id, task]))
+    }
     return removed
   }
 
@@ -150,6 +186,7 @@ class ApplicationService extends EventEmitter {
     if (normalizedMethod === 'GET' && route === '/video/info') return this.getVideoInfo({ bvid: params.bvid, aid: params.aid })
     if (normalizedMethod === 'POST' && route === '/video/check-vip-status') return this.checkVipStatus(this.bilibiliCookies)
     if (normalizedMethod === 'POST' && route === '/download/start') return this.startDownload(data || {})
+    if (normalizedMethod === 'POST' && route === '/download/start-batch') return this.startBatchDownload(data || {})
     if (normalizedMethod === 'GET' && route === '/download/tasks') return this.listTasks(params)
     if (normalizedMethod === 'GET' && route === '/download/stats') return this.getStats()
     if (normalizedMethod === 'GET' && route === '/download/history') return this.getHistory(params.days)
@@ -221,7 +258,7 @@ class ApplicationService extends EventEmitter {
     }
     const headers = { ...BILIBILI_HEADERS }
     if (cookies && Object.keys(cookies).length) headers.Cookie = cookieHeader(cookies)
-    const response = await fetch(target, { headers, redirect: 'follow' })
+    const response = await fetchWithTimeout(target, { headers, redirect: 'follow' }, 30000)
     if (!response.ok) {
       const error = new Error(`B站请求失败: HTTP ${response.status}`)
       error.transient = response.status === 408 || response.status === 429 || response.status >= 500
@@ -303,31 +340,92 @@ class ApplicationService extends EventEmitter {
     return data
   }
 
-  async startDownload(input) {
-    const video = await this.getVideoInfo({ bvid: input.bvid, aid: input.aid })
-    const loginStatus = video.login_status
+  buildTaskBase(video, page, input, loginStatus, idOffset = 0) {
     const taskId = crypto.randomUUID()
     const now = new Date().toISOString()
+    const pages = video.pages || []
+    const isMultiPage = pages.length > 1
+    const pageNumber = page?.page || 1
     const safeTitle = video.title.replace(/[\\/:*?"<>|]/g, '_').slice(0, 120)
+    const safePageTitle = String(page?.title || `第${pageNumber}P`).replace(/[\\/:*?"<>|]/g, '_').slice(0, 60)
+    const title = isMultiPage ? `${video.title} P${pageNumber} ${page?.title || ''}`.replace(/\s+/g, ' ').trim() : video.title
+    const fileBase = (isMultiPage ? `${safeTitle}-P${pageNumber}-${safePageTitle}` : safeTitle).slice(0, 180)
     const directory = input.download_path || this.settings.default_download_path
-    const task = {
-      id: Date.now(), task_id: taskId, title: video.title, bvid: video.bvid, aid: video.aid,
+    return {
+      id: Date.now() + idOffset,
+      task_id: taskId,
+      title,
+      bvid: video.bvid,
+      aid: video.aid,
       uploader: video.uploader,
-      cid: input.cid || video.cid || video.pages?.[0]?.cid, page: 1,
-      quality: String(input.quality || 80), format: 'mp4',
-      file_path: path.join(directory, `${safeTitle}-${taskId.slice(0, 8)}.mp4`),
-      file_size: null, downloaded_size: 0, status: 'pending', progress: 0, speed: null,
-      error_message: null, error_trace: null, created_at: now, updated_at: null,
-      started_at: null, completed_at: null,
-      audio_quality: input.audio_quality, login_status: loginStatus,
+      cid: page?.cid || video.cid || pages[0]?.cid,
+      page: pageNumber,
+      quality: String(input.quality || 80),
+      format: 'mp4',
+      file_path: path.join(directory, `${fileBase}-${taskId.slice(0, 8)}.mp4`),
+      file_size: null,
+      downloaded_size: 0,
+      status: 'pending',
+      progress: 0,
+      speed: null,
+      error_message: null,
+      error_trace: null,
+      created_at: now,
+      updated_at: null,
+      started_at: null,
+      completed_at: null,
+      audio_quality: input.audio_quality,
+      login_status: loginStatus,
       auto_merge: input.auto_merge ?? this.settings.auto_merge,
       delete_temp_files: input.delete_temp_files ?? this.settings.delete_temp_files
     }
+  }
+
+  registerTask(task) {
     this.tasks.unshift(task)
+    this._tasksById.set(task.task_id, task)
+  }
+
+  async startDownload(input) {
+    const video = await this.getVideoInfo({ bvid: input.bvid, aid: input.aid })
+    const loginStatus = video.login_status
+    const cid = input.cid || video.cid || video.pages?.[0]?.cid
+    const page = video.pages?.find(item => item.cid === cid) || null
+    const task = this.buildTaskBase(video, page, input, loginStatus)
+    this.registerTask(task)
     this.persist()
     this.emitTask(task)
-    queueMicrotask(() => this.runDownload(task).catch(error => console.error('下载任务失败:', error)))
+    this.enqueueDownload(task)
     return { ...this.publicTask(task), message: '下载任务已创建' }
+  }
+
+  async startBatchDownload(input) {
+    const video = await this.getVideoInfo({ bvid: input.bvid, aid: input.aid })
+    const loginStatus = video.login_status
+    const pages = video.pages || []
+    if (!pages.length) throw new Error('该视频没有可下载的分P')
+
+    let selectedPages = pages
+    if (Array.isArray(input.cids) && input.cids.length > 0) {
+      const cidSet = new Set(input.cids.map(cid => Number(cid)))
+      const unmatched = [...cidSet].filter(cid => !pages.some(page => Number(page.cid) === cid))
+      if (unmatched.length) throw new Error(`以下分P不存在，无法下载：${unmatched.join('、')}`)
+      selectedPages = pages.filter(page => cidSet.has(Number(page.cid)))
+    }
+    if (!selectedPages.length) throw new Error('未选择任何分P')
+
+    const created = selectedPages.map((page, index) => this.buildTaskBase(video, page, input, loginStatus, index))
+    for (let i = created.length - 1; i >= 0; i--) this.registerTask(created[i])
+    this.persist()
+    for (const task of created) {
+      this.emitTask(task)
+      this.enqueueDownload(task)
+    }
+    return {
+      count: created.length,
+      tasks: created.map(task => this.publicTask(task)),
+      message: `已创建 ${created.length} 个下载任务`
+    }
   }
 
   async runDownload(task) {
@@ -372,7 +470,7 @@ class ApplicationService extends EventEmitter {
       const fileSize = fs.existsSync(task.file_path) ? fs.statSync(task.file_path).size : task.file_size
       Object.assign(task, { status: 'completed', file_size: fileSize, downloaded_size: fileSize, progress: 100, completed_at: new Date().toISOString(), updated_at: new Date().toISOString(), speed: 0 })
     } catch (error) {
-      if (controller.signal.aborted && task.status !== 'paused') task.status = 'cancelled'
+      if (controller.signal.aborted && task.status !== 'paused' && task.status !== 'pending') task.status = 'cancelled'
       if (!controller.signal.aborted) {
         task.status = 'failed'
         task.error_message = serializeError(error)
@@ -380,8 +478,11 @@ class ApplicationService extends EventEmitter {
       task.updated_at = new Date().toISOString()
     } finally {
       this.controllers.delete(task.task_id)
+      this.slowTrackers.delete(task.task_id)
+      this.activeDownloads = Math.max(0, this.activeDownloads - 1)
       this.persist()
       this.emitTask(task)
+      this.drainQueue()
     }
   }
 
@@ -393,32 +494,104 @@ class ApplicationService extends EventEmitter {
       Range: 'bytes=0-'
     }
     if (Object.keys(this.bilibiliCookies).length) headers.Cookie = cookieHeader(this.bilibiliCookies)
-    const response = await fetch(url, { headers, signal })
+
+    const stallController = new AbortController()
+    let stallTimer = null
+    const STALL_TIMEOUT = 5 * 60 * 1000 // 5 分钟无数据视为连接中断
+    const armStall = () => {
+      clearTimeout(stallTimer)
+      stallTimer = setTimeout(() => stallController.abort(new Error('下载连接已超时（长时间无数据）')), STALL_TIMEOUT)
+    }
+    const onUserAbort = () => stallController.abort()
+    signal.addEventListener('abort', onUserAbort, { once: true })
+    armStall()
+
+    let response
+    try {
+      response = await fetch(url, { headers, signal: stallController.signal })
+    } finally {
+      // fetch 完成后清理 stall timer，后续由 transform 中的 armStall 接管
+    }
     if (!response.ok) throw new Error(`下载失败: HTTP ${response.status}`)
     const total = Number(response.headers.get('content-length')) || 0
     let downloaded = 0
+    let lastEmit = 0
     const progressStream = new TransformStream({
-      transform: (chunk, controller) => {
+      transform: async (chunk, controller) => {
+        armStall()
         downloaded += chunk.byteLength
+        // 单线程限速（KB/s，0=不限速）：实时读取设置，修改即时生效
+        const limitKbps = Number(this.settings.download_speed_limit) || 0
+        if (limitKbps > 0) {
+          const limitBps = limitKbps * 1024
+          const expectedMs = (downloaded / limitBps) * 1000
+          const elapsedMs = Date.now() - started
+          if (expectedMs > elapsedMs) {
+            await new Promise(resolve => setTimeout(resolve, expectedMs - elapsedMs))
+          }
+        }
+        const nowMs = Date.now()
+        // 滚动窗口（近10秒）计算实时速率
+        let tracker = this.slowTrackers.get(task.task_id)
+        if (!tracker) {
+          tracker = { window: [], slowSince: null, demoted: false }
+          this.slowTrackers.set(task.task_id, tracker)
+        }
+        tracker.window.push([nowMs, downloaded])
+        while (tracker.window.length > 1 && nowMs - tracker.window[0][0] > 10000) tracker.window.shift()
+        const windowStart = tracker.window[0]
+        const recentBps = (downloaded - windowStart[1]) * 1000 / Math.max(1, nowMs - windowStart[0])
+        task.speed = recentBps
+        // 低速自动暂停：持续低于阈值（且低于限速值）达宽限期，则暂停并移至队尾等待重试
+        const thresholdKbps = Number(this.settings.slow_speed_threshold_kbps) || 0
+        let effectiveThreshold = thresholdKbps
+        if (limitKbps > 0) effectiveThreshold = Math.min(effectiveThreshold, limitKbps)
+        if (this.settings.slow_speed_auto_pause !== false && effectiveThreshold > 0 && !tracker.demoted) {
+          const recentKbps = recentBps / 1024
+          if (recentKbps < effectiveThreshold) {
+            if (tracker.slowSince == null) tracker.slowSince = nowMs
+            else if (nowMs - tracker.slowSince >= (Number(this.settings.slow_speed_grace_seconds) || 15) * 1000) {
+              tracker.demoted = true
+              this.demoteSlowTask(task)
+              return
+            }
+          } else {
+            tracker.slowSince = null
+          }
+        }
         const ratio = total ? Math.min(1, downloaded / total) : 0
         task.progress = progressStart + ratio * (progressEnd - progressStart)
-        task.speed = downloaded / Math.max(1, (Date.now() - started) / 1000)
-        if (downloaded === chunk.byteLength || downloaded % (4 * 1024 * 1024) < chunk.byteLength) this.emitTask(task)
+        task.downloaded_size = downloaded
+        const now = Date.now()
+        const isFirst = downloaded === chunk.byteLength
+        const isComplete = total > 0 && downloaded >= total
+        const enoughTimePassed = now - lastEmit >= 250
+        if (isFirst || isComplete || enoughTimePassed) {
+          lastEmit = now
+          this.emitTask(task)
+        }
         controller.enqueue(chunk)
       }
     })
-    await pipeline(Readable.fromWeb(response.body.pipeThrough(progressStream)), fs.createWriteStream(destination))
+    try {
+      await pipeline(Readable.fromWeb(response.body.pipeThrough(progressStream)), fs.createWriteStream(destination))
+    } finally {
+      clearTimeout(stallTimer)
+      signal.removeEventListener('abort', onUserAbort)
+    }
   }
 
   mergeStreams(videoPath, audioPath, destination, signal) {
     return new Promise((resolve, reject) => {
       const ffmpeg = spawn(resolveFfmpegPath(), [
         '-y',
+        '-threads', '0',
         '-i', videoPath,
         '-i', audioPath,
         '-map', '0:v:0',
         '-map', '1:a:0',
         '-c', 'copy',
+        '-max_muxing_queue_size', '1024',
         '-movflags', '+faststart',
         destination
       ], { windowsHide: true })
@@ -439,6 +612,68 @@ class ApplicationService extends EventEmitter {
     })
   }
 
+  enqueueDownload(task) {
+    this.downloadQueue.push(task.task_id)
+    this.drainQueue()
+  }
+
+  drainQueue() {
+    const max = Math.max(1, Number(this.settings.max_concurrent_downloads) || 1)
+    while (this.activeDownloads < max && this.downloadQueue.length > 0) {
+      const taskId = this.downloadQueue.shift()
+      const task = this._tasksById.get(taskId)
+      if (!task || task.status !== 'pending') continue
+      this.activeDownloads += 1
+      queueMicrotask(() => this.runDownload(task).catch(error => console.error('下载任务失败:', error)))
+    }
+  }
+
+  // 并发自动管理：并行上限调低后，自动暂停超出上限的活动任务（保留更早开始的任务进度）
+  enforceConcurrencyLimit() {
+    const max = Math.max(1, Number(this.settings.max_concurrent_downloads) || 1)
+    const active = this.tasks
+      .filter(task => task.status === 'downloading' || task.status === 'merging')
+      .sort((a, b) => {
+        const timeA = new Date(a.started_at || a.created_at).getTime()
+        const timeB = new Date(b.started_at || b.created_at).getTime()
+        return timeB - timeA
+      })
+    const excess = active.slice(max)
+    let paused = 0
+    for (const task of excess) {
+      task.status = 'paused'
+      task.updated_at = new Date().toISOString()
+      this.controllers.get(task.task_id)?.abort()
+      this.emitTask(task)
+      paused += 1
+    }
+    if (paused) console.info(`并发上限调整：已自动暂停 ${paused} 个超出上限的任务`)
+    return paused
+  }
+
+  // 低速自动暂停：中止当前下载，任务移至队尾并以"等待中"状态排队重试
+  demoteSlowTask(task) {
+    const now = new Date().toISOString()
+    Object.assign(task, {
+      status: 'pending',
+      progress: 0,
+      downloaded_size: 0,
+      speed: null,
+      error_message: null,
+      error_trace: null,
+      started_at: null,
+      updated_at: now
+    })
+    if (task.completed_at) task.completed_at = null
+    // 移到队尾
+    this.downloadQueue = this.downloadQueue.filter(id => id !== task.task_id)
+    this.downloadQueue.push(task.task_id)
+    this.controllers.get(task.task_id)?.abort()
+    this.emitTask(task)
+    this.persist()
+    console.info(`检测到低速下载，已自动暂停并移至队尾（等待中）：${task.title}`)
+  }
+
   emitTask(task) {
     this.emit('download-update', this.publicTask(task))
   }
@@ -455,24 +690,26 @@ class ApplicationService extends EventEmitter {
   }
 
   getTask(taskId) {
-    const task = this.tasks.find(item => item.task_id === taskId)
+    const task = this._tasksById.get(taskId)
     if (!task) throw new Error('任务不存在')
     return this.publicTask(task)
   }
 
   async changeTask(taskId, action) {
-    const task = this.tasks.find(item => item.task_id === taskId)
+    const task = this._tasksById.get(taskId)
     if (!task) throw new Error('任务不存在')
     if (action === 'pause') {
       task.status = 'paused'
       this.controllers.get(taskId)?.abort()
+      this.downloadQueue = this.downloadQueue.filter(id => id !== taskId)
     } else if (action === 'cancel') {
       task.status = 'cancelled'
       this.controllers.get(taskId)?.abort()
+      this.downloadQueue = this.downloadQueue.filter(id => id !== taskId)
     } else if (action === 'resume') {
       task.status = 'pending'
       task.error_message = null
-      queueMicrotask(() => this.runDownload(task).catch(error => console.error('恢复下载失败:', error)))
+      this.enqueueDownload(task)
     }
     task.updated_at = new Date().toISOString()
     this.persist()
@@ -481,9 +718,10 @@ class ApplicationService extends EventEmitter {
   }
 
   deleteTask(taskId, deleteFile = false) {
-    const task = this.tasks.find(item => item.task_id === taskId)
+    const task = this._tasksById.get(taskId)
     if (!task) throw new Error('任务不存在')
     this.controllers.get(taskId)?.abort()
+    this.downloadQueue = this.downloadQueue.filter(id => id !== taskId)
 
     if (deleteFile && task.file_path) {
       try {
@@ -494,6 +732,7 @@ class ApplicationService extends EventEmitter {
     }
 
     this.tasks = this.tasks.filter(item => item.task_id !== taskId)
+    this._tasksById.delete(taskId)
     this.persist()
     return { message: deleteFile ? '任务记录和文件已删除' : '任务记录已删除' }
   }
@@ -529,12 +768,16 @@ class ApplicationService extends EventEmitter {
     this.settings = { ...this.settings, ...(settings || {}) }
     fs.mkdirSync(this.settings.default_download_path, { recursive: true })
     this.persist()
+    // 并发自动管理：调低上限→自动暂停多余活动任务；调高上限→自动启动排队任务
+    this.enforceConcurrencyLimit()
+    this.drainQueue()
     return this.settings
   }
 
   clearCompleted() {
     const count = this.tasks.filter(task => task.status === 'completed').length
     this.tasks = this.tasks.filter(task => task.status !== 'completed')
+    this._tasksById = new Map(this.tasks.map(task => [task.task_id, task]))
     this.persist()
     return { message: `已清理${count}个已完成任务` }
   }
@@ -603,7 +846,7 @@ class ApplicationService extends EventEmitter {
     if (!qrcodeKey) throw new Error('缺少二维码标识')
     const target = new URL('https://passport.bilibili.com/x/passport-login/web/qrcode/poll')
     target.searchParams.set('qrcode_key', qrcodeKey)
-    const response = await fetch(target, { headers: BILIBILI_HEADERS, redirect: 'manual' })
+    const response = await fetchWithTimeout(target, { headers: BILIBILI_HEADERS, redirect: 'manual' }, 15000)
     const body = await response.json()
     const code = body.data?.code ?? body.code
     if (code === 86101) return { status: 'scanning', message: '等待扫描二维码' }

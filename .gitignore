@@ -17,6 +17,7 @@ node_modules/.vite/
 # Generated frontend files
 frontend/src/auto-imports.d.ts
 frontend/src/components.d.ts
+*.tsbuildinfo
 
 # Environment and local configuration
 .env

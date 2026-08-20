@@ -43,6 +43,57 @@
         />
       </el-form-item>
       
+      <!-- 单线程限速 -->
+      <el-form-item label="单线程限速" prop="download_speed_limit">
+        <div class="speed-limit-field">
+          <el-input-number
+            v-model="form.download_speed_limit"
+            :min="0"
+            :max="102400"
+            :step="16"
+            controls-position="right"
+            style="width: 180px"
+          />
+          <span class="speed-limit-unit">KB/s（0 表示不限速；对每个下载任务各自的传输流生效）</span>
+        </div>
+      </el-form-item>
+
+      <!-- 自动管理：低速自动暂停 -->
+      <el-form-item label="低速自动暂停">
+        <div class="auto-manage-field">
+          <el-switch v-model="form.slow_speed_auto_pause" />
+          <span class="auto-manage-desc">下载速率持续低于阈值时，自动暂停并移至队尾进入"等待中"</span>
+        </div>
+      </el-form-item>
+      <template v-if="form.slow_speed_auto_pause">
+        <el-form-item label="低速阈值" prop="slow_speed_threshold_kbps">
+          <div class="auto-manage-field">
+            <el-input-number
+              v-model="form.slow_speed_threshold_kbps"
+              :min="1"
+              :max="102400"
+              :step="16"
+              controls-position="right"
+              style="width: 160px"
+            />
+            <span class="auto-manage-desc">KB/s，低于该速率视为低速</span>
+          </div>
+        </el-form-item>
+        <el-form-item label="宽限期" prop="slow_speed_grace_seconds">
+          <div class="auto-manage-field">
+            <el-input-number
+              v-model="form.slow_speed_grace_seconds"
+              :min="1"
+              :max="600"
+              :step="1"
+              controls-position="right"
+              style="width: 160px"
+            />
+            <span class="auto-manage-desc">秒，持续低速达到该时长后触发</span>
+          </div>
+        </el-form-item>
+      </template>
+
       <!-- 下载选项 -->
       <el-form-item label="下载选项">
         <div class="checkbox-group">
@@ -94,7 +145,11 @@ const formRef = ref<FormInstance>()
 const form = reactive({
   default_download_path: '',
   default_quality: '1080p',
-  max_concurrent_downloads: 3,
+  max_concurrent_downloads: 4,
+  download_speed_limit: 0,
+  slow_speed_auto_pause: true,
+  slow_speed_threshold_kbps: 50,
+  slow_speed_grace_seconds: 15,
   auto_merge: true,
   delete_temp_files: true,
   proxy_enabled: false,
@@ -146,6 +201,10 @@ const handleSubmit = async () => {
       default_download_path: form.default_download_path,
       default_quality: form.default_quality,
       max_concurrent_downloads: form.max_concurrent_downloads,
+      download_speed_limit: form.download_speed_limit,
+      slow_speed_auto_pause: form.slow_speed_auto_pause,
+      slow_speed_threshold_kbps: form.slow_speed_threshold_kbps,
+      slow_speed_grace_seconds: form.slow_speed_grace_seconds,
       auto_merge: form.auto_merge,
       delete_temp_files: form.delete_temp_files,
       proxy_enabled: form.proxy_enabled,
@@ -172,6 +231,10 @@ onMounted(async () => {
     default_download_path: downloadStore.settings.default_download_path,
     default_quality: downloadStore.settings.default_quality,
     max_concurrent_downloads: downloadStore.settings.max_concurrent_downloads,
+    download_speed_limit: downloadStore.settings.download_speed_limit || 0,
+    slow_speed_auto_pause: downloadStore.settings.slow_speed_auto_pause !== false,
+    slow_speed_threshold_kbps: downloadStore.settings.slow_speed_threshold_kbps || 50,
+    slow_speed_grace_seconds: downloadStore.settings.slow_speed_grace_seconds || 15,
     auto_merge: downloadStore.settings.auto_merge,
     delete_temp_files: downloadStore.settings.delete_temp_files,
     proxy_enabled: downloadStore.settings.proxy_enabled,
@@ -194,6 +257,28 @@ onMounted(async () => {
     }
   }
   
+.speed-limit-field {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+
+    .speed-limit-unit {
+      font-size: 12px;
+      color: #909399;
+    }
+  }
+
+.auto-manage-field {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+
+    .auto-manage-desc {
+      font-size: 12px;
+      color: #909399;
+    }
+  }
+
   .proxy-settings {
     margin-left: 120px;
     padding: 16px;
