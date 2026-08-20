@@ -9,7 +9,7 @@
             <div class="header-logo" @click="router.push('/')">
               <img src="/vite.svg" alt="BiliDownloader Logo" />
               <span class="app-name">BiliDownloader</span>
-              <span class="app-version">v0.0.0</span>
+              <span class="app-version">v0.0.1</span>
             </div>
             <el-breadcrumb separator="/" class="breadcrumb" v-if="breadcrumb.length">
               <el-breadcrumb-item v-for="item in breadcrumb" :key="item.path">
@@ -81,7 +81,7 @@
         <el-footer height="40px" class="footer" v-if="showFooter">
           <div class="footer-content">
             <div class="footer-left">
-              <span>BiliDownloader v0.0.0</span>
+              <span>BiliDownloader v0.0.1</span>
               <el-divider direction="vertical" />
               <span>仅供学习交流使用</span>
             </div>

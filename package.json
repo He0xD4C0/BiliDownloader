@@ -1,6 +1,6 @@
 {
   "name": "bilidownloader",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "B站视频下载工具 - 桌面应用版",
   "main": "electron/main.js",
   "scripts": {
