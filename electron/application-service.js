@@ -349,8 +349,17 @@ class ApplicationService extends EventEmitter {
     const safeTitle = video.title.replace(/[\\/:*?"<>|]/g, '_').slice(0, 120)
     const safePageTitle = String(page?.title || `第${pageNumber}P`).replace(/[\\/:*?"<>|]/g, '_').slice(0, 60)
     const title = isMultiPage ? `${video.title} P${pageNumber} ${page?.title || ''}`.replace(/\s+/g, ' ').trim() : video.title
-    const fileBase = (isMultiPage ? `${safeTitle}-P${pageNumber}-${safePageTitle}` : safeTitle).slice(0, 180)
     const directory = input.download_path || this.settings.default_download_path
+    // 文件夹归类：仅多P视频且开启"下载到子目录"时，保存到以视频标题命名的子文件夹，文件名为 分P号+分P名称
+    const useSubdir = isMultiPage && input.download_to_subdir !== false
+    let filePath
+    if (useSubdir) {
+      const subdirName = safeTitle.trim() || `video-${(video.bvid || taskId).slice(0, 8)}`
+      filePath = path.join(directory, subdirName, `P${pageNumber}-${safePageTitle}.mp4`)
+    } else {
+      const fileBase = (isMultiPage ? `${safeTitle}-P${pageNumber}-${safePageTitle}` : safeTitle).slice(0, 180)
+      filePath = path.join(directory, `${fileBase}-${taskId.slice(0, 8)}.mp4`)
+    }
     return {
       id: Date.now() + idOffset,
       task_id: taskId,
@@ -362,7 +371,8 @@ class ApplicationService extends EventEmitter {
       page: pageNumber,
       quality: String(input.quality || 80),
       format: 'mp4',
-      file_path: path.join(directory, `${fileBase}-${taskId.slice(0, 8)}.mp4`),
+      subdir: useSubdir,
+      file_path: filePath,
       file_size: null,
       downloaded_size: 0,
       status: 'pending',
@@ -726,6 +736,12 @@ class ApplicationService extends EventEmitter {
     if (deleteFile && task.file_path) {
       try {
         fs.rmSync(task.file_path, { force: true })
+        // 分P子文件夹归类：文件删除后如子文件夹已空则一并移除
+        if (task.subdir === true) {
+          try {
+            fs.rmdirSync(path.dirname(task.file_path))
+          } catch { /* 目录非空或不存在时忽略 */ }
+        }
       } catch (error) {
         throw new Error(`删除下载文件失败: ${serializeError(error)}`)
       }

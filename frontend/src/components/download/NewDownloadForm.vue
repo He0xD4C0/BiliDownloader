@@ -84,6 +84,17 @@
               </div>
             </div>
           </el-form-item>
+
+          <!-- 分P下载归类：下载到以视频标题命名的子文件夹 -->
+          <el-form-item label="下载到子目录">
+            <div class="subdir-option">
+              <el-switch v-model="form.downloadToSubdir" />
+              <span class="subdir-label">开启后，分P文件将保存到「{{ videoInfo.title }}」子文件夹</span>
+            </div>
+            <div class="form-tip">
+              文件名自动设为 分P号+分P名称，文件夹位于所选保存路径下；单分P视频不提供此功能
+            </div>
+          </el-form-item>
         </div>
       </div>
       
@@ -217,6 +228,7 @@ const form = reactive({
   filenameTemplate: '{title}_{quality}',
   autoMerge: true,
   deleteTempFiles: true,
+  downloadToSubdir: true, // 分P视频下载到以视频标题命名的子文件夹（默认开启）
   audioQuality: 30216 as number | null, // 默认高音质
 })
 
@@ -336,6 +348,9 @@ const parseUrl = async () => {
     loginStatus.value = videoResponse.login_status || 0
     loginStatusText.value = loginStatus.value >= 2 ? '大会员' : loginStatus.value >= 1 ? '已登录' : '未登录'
     videoInfo.value = videoResponse
+
+    // 每次新解析重置"下载到子目录"开关为默认开启
+    form.downloadToSubdir = true
     
     // 默认全选分P，方便批量下载
     if (videoInfo.value.pages && videoInfo.value.pages.length > 0) {
@@ -426,6 +441,7 @@ const handleSubmit = async () => {
       audio_quality: form.audioQuality,
       auto_merge: form.autoMerge,
       delete_temp_files: form.deleteTempFiles,
+      download_to_subdir: form.downloadToSubdir,
       download_path: form.downloadPath
     }
     
@@ -538,6 +554,18 @@ onMounted(async () => {
       margin-top: 16px;
       padding-top: 16px;
       border-top: 1px solid #e6e6e6;
+    }
+
+    // 分P下载归类开关
+    .subdir-option {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+
+      .subdir-label {
+        font-size: 13px;
+        color: #303133;
+      }
     }
 
     .page-selector {

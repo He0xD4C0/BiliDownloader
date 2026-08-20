@@ -15,6 +15,7 @@ BiliDownloader 是一个用于解析和下载 B 站视频的独立 Electron 桌�
 
 - 支持 BV 号、AV 号和完整 B 站视频链接
 - 支持分P（多P）视频批量下载：一次解析后勾选多个分P，为每个分P独立创建下载任务
+- 分P视频下载自动归类：默认保存到「视频标题」子文件夹，文件名自动为 分P号+分P名称，可在下载界面关闭该开关；单分P视频不提供此功能
 - 根据视频和当前账号权限解析实际可下载画质
 - B 站二维码登录
 - 启动时自动检查登录状态并刷新账号资料和头像
@@ -112,6 +113,23 @@ dist-electron/
 ```
 
 > 跨平台产物通常应在对应操作系统上构建。Windows 和 Linux 的签名、安装器及系统依赖也需要在目标构建环境中验证。
+
+## 测试
+
+后端单元测试位于 `test/`（Node 自带 test runner，无需额外依赖；`test/helpers/mock-electron.js` 负责在无 Electron 环境下加载应用服务）：
+
+```bash
+npm test          # 运行全部后端单元测试
+npm run test:unit # 只运行 test/application-service.test.js
+```
+
+一键执行完整校验（类型检查 + 单元测试 + 前端构建）：
+
+```bash
+npm run verify
+```
+
+浏览器验收流程（静态托管构建产物、注入 `window.electronAPI` 桩）参见项目技能 `.agents/skills/bili-testing/SKILL.md`。
 
 ## 数据和下载目录
 
