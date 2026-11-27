@@ -44,7 +44,6 @@ jobs:
         arch: [x64, arm64]
     env:
       ARCH: ${{ matrix.arch }}
-      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -53,9 +52,15 @@ jobs:
         with:
           node-version: '24'
       - run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - name: Install target Electron runtime
+        env:
+          npm_config_arch: ${{ matrix.arch }}
+        run: node node_modules/electron/install.js
       - run: npm run build:frontend
       - name: Build Windows portable package
-        run: npm exec -- electron-builder --win portable "--$env:ARCH" --publish never --config.electronDownload.mirror=https://github.com/electron/electron/releases/download/
+        run: npm exec -- electron-builder --win portable "--$env:ARCH" --publish never --config.electronDist=node_modules/electron/dist
       - name: Verify bundled executables
         shell: pwsh
         run: |
