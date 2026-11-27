@@ -102,19 +102,24 @@ jobs:
           for asset in "${assets[@]}"; do
             test -s "$asset"
           done
-          tag=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$VERSION" --jq .object.sha 2>/dev/null || true)
-          if [[ -n "$tag" && "$tag" != "$GITHUB_SHA" ]]; then
-            echo "Tag $VERSION already refers to a different commit" >&2
+          if tag=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$VERSION" --jq .object.sha 2>&1); then
+            if [[ "$tag" != "$GITHUB_SHA" ]]; then
+              echo "Tag $VERSION already refers to a different commit" >&2
+              exit 1
+            fi
+          elif [[ "$tag" != *'(HTTP 404)'* ]]; then
+            printf '%s\n' "$tag" >&2
             exit 1
           fi
-          existing=$(gh release view "$VERSION" --repo "$GITHUB_REPOSITORY" --json isDraft,targetCommitish \
-            --jq '[.isDraft, .targetCommitish] | @tsv' 2>/dev/null || true)
-          if [[ -z "$existing" ]]; then
+          if existing=$(gh release view "$VERSION" --repo "$GITHUB_REPOSITORY" --json isDraft,targetCommitish \
+            --jq '[.isDraft, .targetCommitish] | @tsv' 2>/dev/null); then
+            if [[ "$existing" != $'true\t'"$GITHUB_SHA" ]]; then
+              echo "Release $VERSION already exists for another run or is public" >&2
+              exit 1
+            fi
+          else
             gh release create "$VERSION" --repo "$GITHUB_REPOSITORY" --draft --target "$GITHUB_SHA" \
               --title "BiliDownloader $VERSION" --generate-notes
-          elif [[ "$existing" != $'true\t'"$GITHUB_SHA" ]]; then
-            echo "Release $VERSION already exists for another run or is public" >&2
-            exit 1
           fi
           gh release upload "$VERSION" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --clobber
           gh release edit "$VERSION" --repo "$GITHUB_REPOSITORY" --draft=false --latest
