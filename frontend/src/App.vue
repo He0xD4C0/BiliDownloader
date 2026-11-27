@@ -36,7 +36,7 @@
             v-if="route.name !== 'Home'"
             type="primary"
             :icon="Plus"
-            @click="showNewDownloadDialog = true"
+            @click="openNewDownload"
           >
             新建下载
           </ElButton>
@@ -45,8 +45,18 @@
     </header>
 
     <main class="app-content">
+      <div v-if="createdTaskIds.length" class="task-notice">
+        <p role="status">已添加 {{ createdTaskIds.length }} 个下载任务。</p>
+        <ElButton type="primary" link @click="viewCreatedTasks">查看任务</ElButton>
+        <ElButton text @click="createdTaskIds = []">关闭通知</ElButton>
+      </div>
       <RouterView v-slot="{ Component }">
-        <component :is="Component" @new-download="showNewDownloadDialog = true" />
+        <component
+          :is="Component"
+          v-bind="route.name === 'Home' ? { newTaskIds: taskViewIds } : {}"
+          @new-download="openNewDownload"
+          @clear-new-tasks="taskViewIds = []"
+        />
       </RouterView>
       <footer class="app-footer">
         <RouterLink to="/about">关于 BiliDownloader</RouterLink>
@@ -61,8 +71,17 @@
       width="min(650px, calc(100% - 32px))" class="app-dialog"
       destroy-on-close
       :close-on-click-modal="false"
+      :close-on-press-escape="!creatingDownload"
+      :show-close="!creatingDownload"
+      @opened="focusDownloadInput"
     >
-      <NewDownloadForm @success="onDownloadSuccess" @cancel="showNewDownloadDialog = false" />
+      <NewDownloadForm
+        ref="newDownloadForm"
+        :open="showNewDownloadDialog"
+        @success="onDownloadSuccess"
+        @cancel="showNewDownloadDialog = false"
+        @creating="creatingDownload = $event"
+      />
     </el-dialog>
 
     <!-- 设置对话框（全局） -->
@@ -121,7 +140,7 @@
 
 <script setup lang="ts">
 import { ref, computed, reactive, watchEffect, onMounted, onUnmounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElButton, ElMessage } from 'element-plus'
 import { Download, Loading, Moon, Plus, Setting, Sunny, User } from '@element-plus/icons-vue'
 import QRCode from 'qrcode'
@@ -133,11 +152,16 @@ import DownloadSettingsForm from '@/components/download/SettingsForm.vue'
 import GlobalNotification from '@/components/common/GlobalNotification.vue'
 
 const route = useRoute()
+const router = useRouter()
 const userStore = useUserStore()
 const downloadStore = useDownloadStore()
 
 // 状态
 const showNewDownloadDialog = ref(false)
+const newDownloadForm = ref<InstanceType<typeof NewDownloadForm>>()
+const creatingDownload = ref(false)
+const createdTaskIds = ref<string[]>([])
+const taskViewIds = ref<string[]>([])
 const showSettingsDialog = ref(false)
 const showLoginDialog = ref(false)
 
@@ -202,8 +226,21 @@ const toggleTheme = () => {
   }
 }
 
-const onDownloadSuccess = () => {
+const openNewDownload = () => {
+  showNewDownloadDialog.value = true
+}
+
+const focusDownloadInput = () => newDownloadForm.value?.focusUrl()
+
+const onDownloadSuccess = (taskIds: string[]) => {
   showNewDownloadDialog.value = false
+  createdTaskIds.value = [...createdTaskIds.value, ...taskIds]
+}
+
+const viewCreatedTasks = async () => {
+  taskViewIds.value = createdTaskIds.value
+  createdTaskIds.value = []
+  if (route.name !== 'Home') await router.push('/')
 }
 
 const onSettingsSaved = async () => {
@@ -502,6 +539,19 @@ onUnmounted(() => {
     color: inherit;
     text-underline-offset: 3px;
   }
+}
+
+.task-notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+
+  :deep(.el-button + .el-button) { margin-left: 0; }
 }
 
 .bilibili-login-dialog {

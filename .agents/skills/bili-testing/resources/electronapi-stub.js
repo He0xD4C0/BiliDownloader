@@ -24,9 +24,11 @@
     proxy_url: null
   }
 
+  const tasks = []
   const taskStub = (data) => ({
-    task_id: 't-' + Date.now(), id: Date.now(), title: 'x', bvid: data.bvid, aid: data.aid, cid: data.cid,
-    page: 1, quality: '80', format: 'mp4', file_path: '', file_size: null, downloaded_size: 0,
+    task_id: 't-' + (tasks.length + 1), id: tasks.length + 1, title: '测试下载 ' + data.cid,
+    bvid: data.bvid, aid: data.aid, cid: data.cid,
+    page: 1, quality: String(data.quality), quality_name: '1080P', format: 'mp4', file_path: '', file_size: null, downloaded_size: 0,
     status: 'pending', progress: 0, speed: null, error_message: null, error_trace: null,
     created_at: new Date().toISOString(), updated_at: null, started_at: null, completed_at: null
   })
@@ -54,22 +56,73 @@
   window.electronAPI = {
     request: async ({ method, url, data, params }) => {
       const route = String(url || '')
+      if (method === 'GET' && route === '/video/resolve') {
+        if (params.url === '无效文本') return { ok: false, error: 'invalid_input' }
+        if (params.url.includes('BV15G2vY1Eaa')) return { ok: false, error: 'not_accessible' }
+        const video = window.__test.mode === 'multi' ? multiInfo : singleInfo
+        const page = /[?&]p=(\d+)/.exec(params.url)?.[1]
+        const selected = page ? video.pages.find(item => item.page === Number(page)) : video.pages[0]
+        if (!selected) return { ok: false, error: 'invalid_page' }
+        const firstQuality = video.available_qualities[0]
+        return {
+          ok: true,
+          requested_page: page ? Number(page) : null,
+          video: {
+            ...video,
+            selected_cid: selected.cid,
+            preferred_quality: firstQuality,
+            selected_quality: firstQuality,
+            pages: video.pages.map(item => {
+              const filename = 'P' + String(item.page).padStart(2, '0') + ' - ' + item.title + '.mp4'
+              return {
+                ...item,
+                flat_filename: video.pages.length > 1 ? video.title + ' - ' + filename : video.title + '.mp4',
+                grouped_filename: video.pages.length > 1 ? video.title + '\\' + filename : video.title + '.mp4'
+              }
+            })
+          }
+        }
+      }
+      if (method === 'POST' && route === '/download/preview') {
+        const video = window.__test.mode === 'multi' ? multiInfo : singleInfo
+        return video.pages.filter(page => data.cids.includes(page.cid)).map(page => ({
+          cid: page.cid,
+          page: page.page,
+          quality: video.available_qualities.find(item => item.qn === data.quality),
+          status: 'ready'
+        }))
+      }
       if (method === 'GET' && route === '/video/parse-url') return { type: 'video', bvid: 'BV1TEST1234', aid: 1234, p: 1 }
       if (method === 'POST' && route === '/video/check-vip-status') return { is_logged_in: true, is_vip: false, vip_type: 0, vip_status: 0, login_status: 1, user_id: 1, user_name: 'tester', vip_due_date: 0 }
       if (method === 'GET' && route === '/video/info') return window.__test.mode === 'multi' ? multiInfo : singleInfo
       if (method === 'GET' && route === '/download/settings') return settings
       if (method === 'POST' && route === '/download/settings') return settings
-      if (method === 'GET' && route === '/download/tasks') return { page: 1, page_size: 50, total: 0, tasks: [] }
+      if (method === 'GET' && route === '/download/tasks') return { page: 1, page_size: 50, total: tasks.length, tasks }
       if (method === 'GET' && route === '/download/stats') return { total_tasks: 0, completed_tasks: 0, failed_tasks: 0, downloading_tasks: 0, total_downloaded_size: 0, average_speed: 0 }
       if (method === 'GET' && route === '/download/history') return { days: 7, history: [] }
-      if (method === 'POST' && route === '/download/start') { window.__test.lastStartPayload = data; return taskStub(data) }
-      if (method === 'POST' && route === '/download/start-batch') { window.__test.lastBatchPayload = data; return { count: 2, tasks: [] } }
+      if (method === 'POST' && route === '/download/start') {
+        window.__test.lastStartPayload = data
+        const task = taskStub(data)
+        tasks.push(task)
+        return task
+      }
+      if (method === 'POST' && route === '/download/start-batch') {
+        window.__test.lastBatchPayload = data
+        const created = data.cids.map(cid => {
+          const task = taskStub({ ...data, cid })
+          tasks.push(task)
+          return task
+        })
+        return { count: created.length, tasks: created }
+      }
       if (/^\/download\/task\//.test(route)) return {}
       if (/^\/auth\//.test(route)) return { user: null, is_logged_in: false }
       return { ok: true }
     },
     onDownloadUpdate: () => () => {},
+    getAppInfo: async () => ({ version: '0.0.1', name: 'BiliDownloader', platform: 'win32', isDev: true }),
     selectDownloadDirectory: async () => null,
-    openFile: async () => true
+    openFile: async () => true,
+    openFileDirectory: async () => true
   }
 })()

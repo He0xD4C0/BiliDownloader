@@ -14,6 +14,10 @@ export interface DownloadTask {
   cid: number | null
   page: number
   quality: string
+  quality_name?: string | null
+  planned_quality_name?: string | null
+  actual_quality_name?: string | null
+  resume_state?: 'restart_required' | null
   format: string
   file_path: string | null
   file_size: number | null
@@ -36,6 +40,11 @@ export interface DownloadStats {
   downloading_tasks: number
   total_downloaded_size: number
   average_speed: number
+}
+
+export interface ResumeDownloadResult {
+  message: string
+  outcome: 'queued' | 'restart_required'
 }
 
 export interface DownloadSettings {
@@ -194,13 +203,18 @@ export const useDownloadStore = defineStore('download', () => {
   
   const resumeDownload = async (taskId: string) => {
     try {
-      const response = await api.post(`/download/resume/${taskId}`)
+      const response = await api.post<ResumeDownloadResult>(`/download/resume/${taskId}`)
       await fetchTask(taskId)
       return response
     } catch (error) {
       console.error('恢复下载失败:', error)
       throw error
     }
+  }
+
+  const restartDownload = async (taskId: string) => {
+    await api.post(`/download/restart/${taskId}`)
+    await fetchTask(taskId)
   }
   
   const cancelDownload = async (taskId: string) => {
@@ -275,11 +289,17 @@ export const useDownloadStore = defineStore('download', () => {
     }
   }
   
-  const clearCompletedTasks = async () => {
+  const pauseTasks = async (taskIds: string[]) => {
+    await api.post('/download/pause-all', { task_ids: taskIds })
+  }
+
+  const clearCompletedTasks = async (taskIds: string[]) => {
     try {
-      const response = await api.post('/download/clear-completed')
-      // 从任务列表中移除已完成的任务
-      tasks.value = tasks.value.filter(task => task.status !== 'completed')
+      const response = await api.post<{ task_ids: string[]; message: string }>(
+        '/download/clear-completed', { task_ids: taskIds }
+      )
+      const removed = new Set(response.task_ids)
+      tasks.value = tasks.value.filter(task => !removed.has(task.task_id))
       return response
     } catch (error) {
       console.error('清理已完成任务失败:', error)
@@ -327,6 +347,7 @@ export const useDownloadStore = defineStore('download', () => {
     startBatchDownload,
     pauseDownload,
     resumeDownload,
+    restartDownload,
     cancelDownload,
     deleteTask,
     fetchStats,
@@ -334,6 +355,7 @@ export const useDownloadStore = defineStore('download', () => {
     fetchSettings,
     updateSettings,
     clearCompletedTasks,
+    pauseTasks,
     setupTaskUpdates
   }
 })

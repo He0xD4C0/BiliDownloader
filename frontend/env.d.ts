@@ -27,7 +27,7 @@ interface ElectronAPI {
     platform: string
     isDev: boolean
   }>
-  selectDownloadDirectory(): Promise<string | null>
+  selectDownloadDirectory(currentPath?: string): Promise<string | null>
   openFileDirectory(filePath: string): Promise<boolean>
   openFile(filePath: string): Promise<boolean>
   showNotification(options: { title?: string; body: string; silent?: boolean }): Promise<boolean>

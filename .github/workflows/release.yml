@@ -1,0 +1,115 @@
+name: Release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.value }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm ci --ignore-scripts
+      - run: |
+          node --check electron/application-service.js
+          node --check electron/main.js
+          node --check electron/preload.js
+          npm run verify
+      - id: version
+        shell: bash
+        run: |
+          version=$(node -p "require('./package.json').version")
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          echo "value=$version" >> "$GITHUB_OUTPUT"
+
+  package:
+    needs: verify
+    runs-on: windows-2022
+    strategy:
+      matrix:
+        arch: [x64, arm64]
+    env:
+      ARCH: ${{ matrix.arch }}
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm ci
+      - run: npm run build:frontend
+      - name: Build Windows portable package
+        run: npm exec -- electron-builder --win portable "--$env:ARCH" --publish never --config.electronDownload.mirror=https://github.com/electron/electron/releases/download/
+      - name: Verify bundled executables
+        shell: pwsh
+        run: |
+          $directory = if ($env:ARCH -eq 'arm64') { 'win-arm64-unpacked' } else { 'win-unpacked' }
+          $appDirectory = Join-Path dist-electron $directory
+          $appPath = Join-Path $appDirectory 'BiliDownloader.exe'
+          $bytes = [IO.File]::ReadAllBytes((Resolve-Path -LiteralPath $appPath))
+          $peOffset = [BitConverter]::ToInt32($bytes, 0x3c)
+          $machine = [BitConverter]::ToUInt16($bytes, $peOffset + 4)
+          $expectedMachine = if ($env:ARCH -eq 'arm64') { 0xaa64 } else { 0x8664 }
+          if ($machine -ne $expectedMachine) { throw "Unexpected executable architecture: $machine" }
+          $ffmpeg = Join-Path $appDirectory 'resources/app.asar.unpacked/node_modules/ffmpeg-static/ffmpeg.exe'
+          & $ffmpeg -version
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-${{ matrix.arch }}
+          path: dist-electron/BiliDownloader-${{ needs.verify.outputs.version }}-windows-${{ matrix.arch }}.exe
+          if-no-files-found: error
+
+  publish:
+    needs: [verify, package]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: windows-*
+          path: release-assets
+          merge-multiple: true
+      - name: Publish GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          assets=("release-assets/BiliDownloader-$VERSION-windows-x64.exe" "release-assets/BiliDownloader-$VERSION-windows-arm64.exe")
+          for asset in "${assets[@]}"; do
+            test -s "$asset"
+          done
+          tag=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$VERSION" --jq .object.sha 2>/dev/null || true)
+          if [[ -n "$tag" && "$tag" != "$GITHUB_SHA" ]]; then
+            echo "Tag $VERSION already refers to a different commit" >&2
+            exit 1
+          fi
+          existing=$(gh release view "$VERSION" --repo "$GITHUB_REPOSITORY" --json isDraft,targetCommitish \
+            --jq '[.isDraft, .targetCommitish] | @tsv' 2>/dev/null || true)
+          if [[ -z "$existing" ]]; then
+            gh release create "$VERSION" --repo "$GITHUB_REPOSITORY" --draft --target "$GITHUB_SHA" \
+              --title "BiliDownloader $VERSION" --generate-notes
+          elif [[ "$existing" != $'true\t'"$GITHUB_SHA" ]]; then
+            echo "Release $VERSION already exists for another run or is public" >&2
+            exit 1
+          fi
+          gh release upload "$VERSION" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+          gh release edit "$VERSION" --repo "$GITHUB_REPOSITORY" --draft=false --latest

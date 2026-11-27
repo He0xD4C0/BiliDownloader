@@ -1,7 +1,7 @@
 <!-- 单线程限速控制：表格上方直接调整并保存（KB/s，0=不限速） -->
 <template>
   <div class="speed-limit-control">
-    <span class="speed-limit-label">限速</span>
+    <span class="speed-limit-label">单线程限速</span>
     <el-input-number
       :model-value="modelValue"
       :min="0"
@@ -13,7 +13,7 @@
       :disabled="saving"
       @change="handleChange"
     />
-    <span class="speed-limit-unit">KB/s</span>
+    <span class="speed-limit-unit">KB/s · 0 为不限速</span>
   </div>
 </template>
 
@@ -62,6 +62,10 @@ const handleChange = async (value: number | undefined) => {
     font-size: 13px;
     color: var(--muted);
     white-space: nowrap;
+  }
+
+  :deep(.el-input-number) {
+    width: 94px;
   }
 
   .speed-limit-unit {

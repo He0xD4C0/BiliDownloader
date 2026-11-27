@@ -145,7 +145,7 @@ const selectDownloadPath = async () => {
     return
   }
 
-  const selectedPath = await window.electronAPI.selectDownloadDirectory()
+  const selectedPath = await window.electronAPI.selectDownloadDirectory(form.default_download_path)
   if (selectedPath) form.default_download_path = selectedPath
 }
 

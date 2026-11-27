@@ -42,8 +42,7 @@ function createWindow() {
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js'),
       backgroundThrottling: false
-    },
-    icon: path.join(__dirname, '../public/icon.png')
+    }
   })
 
   // 加载应用
@@ -85,13 +84,14 @@ function createWindow() {
 }
 
 // 创建系统托盘
-function createTray() {
+async function createTray() {
   if (process.platform === 'darwin') {
     // macOS不需要托盘图标
     return
   }
 
-  tray = new Tray(path.join(__dirname, '../public/tray-icon.png'))
+  const icon = await app.getFileIcon(process.execPath, { size: 'small' })
+  tray = new Tray(icon)
   
   const contextMenu = Menu.buildFromTemplate([
     {
@@ -221,7 +221,7 @@ app.whenReady().then(() => {
   })
 
   createWindow()
-  createTray()
+  createTray().catch(error => console.warn('创建系统托盘失败:', error))
 
   // 设置浏览器原生下载路径，与应用下载设置保持一致。
   session.defaultSession.setDownloadPath(applicationService.settings.default_download_path)
@@ -259,9 +259,12 @@ ipcMain.handle('get-app-info', () => {
   }
 })
 
-ipcMain.handle('select-download-directory', async () => {
+ipcMain.handle('select-download-directory', async (_event, currentPath) => {
   const { dialog } = require('electron')
   const result = await dialog.showOpenDialog(mainWindow, {
+    defaultPath: typeof currentPath === 'string' && path.isAbsolute(currentPath)
+      ? currentPath
+      : applicationService.settings.default_download_path,
     properties: ['openDirectory', 'createDirectory']
   })
   

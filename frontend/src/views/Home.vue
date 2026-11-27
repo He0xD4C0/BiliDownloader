@@ -33,7 +33,7 @@
 
     <section class="tasks-section" aria-labelledby="tasks-title">
       <div class="tasks-header">
-        <h2 id="tasks-title">下载任务</h2>
+        <h2 id="tasks-title" ref="taskHeading" tabindex="-1">下载任务</h2>
         <div class="header-actions">
           <ConcurrencyControl v-model="downloadStore.settings.max_concurrent_downloads" />
           <SpeedLimitControl v-model="downloadStore.settings.download_speed_limit" />
@@ -42,7 +42,13 @@
       </div>
 
       <div class="queue-controls">
-        <el-radio-group v-model="filterStatus" aria-label="按任务状态筛选">
+        <div v-if="focusedTaskIds?.length" class="new-task-filter">
+          <span>{{ actionTaskIds.length ? '本次操作' : '本次新建' }} · {{ totalTasks }} 项</span>
+          <el-button link type="primary" @click="clearFocusedTasks">
+            {{ actionTaskIds.length ? '返回原视图' : '查看全部' }}
+          </el-button>
+        </div>
+        <el-radio-group v-else v-model="filterStatus" aria-label="按任务状态筛选">
           <el-radio-button v-for="filter in taskFilters" :key="filter.value" :value="filter.value">
             {{ filter.label }}
           </el-radio-button>
@@ -57,20 +63,44 @@
           <el-button :icon="MoreFilled">批量操作</el-button>
           <template #dropdown>
             <el-dropdown-menu>
-              <el-dropdown-item command="start" :disabled="!canStartAll">全部开始</el-dropdown-item>
-              <el-dropdown-item command="pause" :disabled="!canPauseAll">全部暂停</el-dropdown-item>
-              <el-dropdown-item command="clear" :disabled="!hasCompletedTasks" divided>删除已完成</el-dropdown-item>
-              <el-dropdown-item command="delete" class="danger-command">全部暂停并删除</el-dropdown-item>
+              <el-dropdown-item command="start" :disabled="!globalContinue.ready.length || bulkBusy">
+                继续整个队列中的 {{ globalContinue.ready.length }} 项
+                <span v-if="globalContinue.restart.length">（{{ globalContinue.restart.length }} 项需重新下载）</span>
+              </el-dropdown-item>
+              <el-dropdown-item command="pause" :disabled="!globalPauseIds.length || bulkBusy">
+                暂停整个队列中的 {{ globalPauseIds.length }} 项
+              </el-dropdown-item>
+              <el-dropdown-item command="clear" :disabled="!viewCompletedIds.length || bulkBusy" divided>
+                删除当前视图中的 {{ viewCompletedIds.length }} 条已完成记录
+              </el-dropdown-item>
+              <el-dropdown-item command="delete" :disabled="bulkBusy" class="danger-command">
+                暂停并删除整个队列的 {{ tasks.length }} 项
+              </el-dropdown-item>
             </el-dropdown-menu>
           </template>
         </el-dropdown>
       </div>
 
+      <div v-if="actionNotice" class="task-action-notice">
+        <p role="status">{{ actionNotice.message }}</p>
+        <el-button v-if="actionNotice.taskIds.length" link type="primary" @click="viewActionTasks">
+          {{ actionNotice.paused ? '查看已暂停任务' : '查看任务' }}
+        </el-button>
+        <el-button text size="small" @click="actionNotice = null">关闭提示</el-button>
+      </div>
+
       <div v-if="selectedTasks.length" class="selection-toolbar">
         <span class="selection-count" aria-live="polite">已选 {{ selectedTasks.length }} 项</span>
-        <el-button size="small" @click="pauseSelectedTasks" :disabled="!hasDownloadingSelected">暂停选中</el-button>
-        <el-button size="small" @click="resumeSelectedTasks" :disabled="!hasPausedSelected">开始选中</el-button>
-        <el-button size="small" type="danger" plain @click="deleteSelectedTasks">删除选中</el-button>
+        <el-button size="small" @click="pauseTasks(selectedPauseIds)" :disabled="!selectedPauseIds.length || bulkBusy">
+          暂停选中的 {{ selectedPauseIds.length }} 项
+        </el-button>
+        <el-button size="small" @click="continueTasks(selectedContinue)" :disabled="!selectedContinue.ready.length || bulkBusy">
+          继续选中的 {{ selectedContinue.ready.length }} 项
+        </el-button>
+        <span v-if="selectedContinue.restart.length">{{ selectedContinue.restart.length }} 项需重新下载</span>
+        <el-button size="small" type="danger" plain @click="deleteSelectedTasks" :disabled="bulkBusy">
+          删除选中的 {{ selectedTasks.length }} 项
+        </el-button>
         <el-button size="small" text @click="clearSelection">取消选择</el-button>
       </div>
 
@@ -129,7 +159,7 @@
                   <div class="video-details">
                     <div class="video-title" :title="row.title">{{ row.title || '未知标题' }}</div>
                     <div class="video-meta">
-                      {{ row.uploader || '未知上传者' }} · {{ row.quality || '未知画质' }}
+                      {{ row.uploader || '未知上传者' }}
                     </div>
                   </div>
                 </div>
@@ -145,16 +175,29 @@
                 <el-tag :type="getStatusType(row.status)" effect="light" round disable-transitions>
                   {{ getStatusText(row.status) }}
                 </el-tag>
+                <p v-if="requiresRestart(row)" class="restart-note">{{ restartMessage }}</p>
               </td>
               <td>
-                <div>{{ formatFileSize(row.file_size) }}</div>
+                <div>{{ taskFileInfo(row) }}</div>
+                <div v-if="qualityChange(row)" class="task-date quality-change">{{ qualityChange(row) }}</div>
                 <div class="task-date" :title="formatDate(row.created_at)">{{ formatDate(row.created_at) }}</div>
               </td>
               <td>
                 <div class="row-actions">
-                  <el-button v-if="row.status === 'downloading'" link size="small" type="primary" @click="pauseTask(row.task_id)">暂停</el-button>
-                  <el-button v-if="row.status === 'paused' || row.status === 'failed'" link size="small" type="primary" @click="resumeTask(row.task_id)">继续</el-button>
-                  <el-button v-if="row.status === 'completed' && row.file_path" link size="small" type="primary" @click="openFile(row.file_path)">打开</el-button>
+                  <el-button
+                    v-if="row.status === 'downloading' || row.status === 'merging'"
+                    link size="small" type="primary" :disabled="busyTaskIds.has(row.task_id)"
+                    @click="changeTask(row, 'pause')"
+                  >暂停</el-button>
+                  <el-button
+                    v-if="isStopped(row)"
+                    link size="small" type="primary" :disabled="busyTaskIds.has(row.task_id)"
+                    @click="changeTask(row, requiresRestart(row) ? 'restart' : 'resume')"
+                  >{{ requiresRestart(row) ? '重新下载' : '继续' }}</el-button>
+                  <template v-if="row.status === 'completed' && row.file_path">
+                    <el-button link size="small" type="primary" @click="openFile(row.file_path)">播放</el-button>
+                    <el-button link size="small" type="primary" @click="openFile(row.file_path, true)">在文件夹中显示</el-button>
+                  </template>
                   <el-button link size="small" type="danger" @click="deleteTask(row.task_id)">删除</el-button>
                 </div>
               </td>
@@ -167,7 +210,7 @@
         <span class="empty-icon"><el-icon><FolderOpened /></el-icon></span>
         <p>{{ emptyMessage }}</p>
         <el-button v-if="loadFailed" @click="refreshTasks(true)">重试</el-button>
-        <el-button v-else-if="!refreshing && filterStatus" @click="filterStatus = ''">查看全部</el-button>
+        <el-button v-else-if="!refreshing && filterStatus && !focusedTaskIds?.length" @click="filterStatus = ''">查看全部</el-button>
       </div>
 
       <div v-if="totalTasks" class="pagination-bar">
@@ -188,14 +231,22 @@
       :title="deleteDialogTitle"
       width="min(420px, calc(100% - 32px))" class="app-dialog"
       :close-on-click-modal="false"
+      :close-on-press-escape="!deletingTasks"
+      :show-close="!deletingTasks"
+      @opened="focusDeleteCancel"
     >
       <p>{{ deleteDialogMessage }}</p>
-      <el-checkbox v-model="deleteFiles">是否同时删除文件</el-checkbox>
+      <el-checkbox v-if="deleteScope !== 'completed'" v-model="deleteFiles" :disabled="deletingTasks">
+        同时删除磁盘上的下载文件
+      </el-checkbox>
+      <p>{{ deleteFiles ? '将删除任务记录及关联的下载文件。' : '将删除任务记录和未完成的下载缓存，保留已保存的视频文件。' }}</p>
       <template #footer>
-        <el-button @click="cancelDelete">取消</el-button>
-        <el-button type="danger" :loading="deletingTasks" @click="confirmDelete">
-          确定删除
-        </el-button>
+        <div ref="deleteFooter">
+          <el-button :disabled="deletingTasks" @click="cancelDelete">取消</el-button>
+          <el-button type="danger" :loading="deletingTasks" @click="confirmDelete">
+            删除 {{ pendingDeleteTaskIds.length }} 项
+          </el-button>
+        </div>
       </template>
     </el-dialog>
 
@@ -203,14 +254,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ref, computed, nextTick, onMounted, watch } from 'vue'
+import { ElMessage } from 'element-plus'
 import { Download, Clock, CircleCheck, Folder, FolderOpened, Film, MoreFilled, Operation, Plus, Refresh, TrendCharts } from '@element-plus/icons-vue'
-import { useDownloadStore } from '@/stores/download'
+import { useDownloadStore, type DownloadTask } from '@/stores/download'
 import ConcurrencyControl from '@/components/download/ConcurrencyControl.vue'
 import SpeedLimitControl from '@/components/download/SpeedLimitControl.vue'
 
-const emit = defineEmits<{ (event: 'new-download'): void }>()
+const props = defineProps<{ newTaskIds?: string[] }>()
+const emit = defineEmits<{ 'new-download': []; 'clear-new-tasks': [] }>()
 const downloadStore = useDownloadStore()
 
 const taskFilters = [
@@ -224,9 +276,16 @@ const taskFilters = [
 
 const refreshing = ref(false)
 const loadFailed = ref(false)
+const actionTaskIds = ref<string[]>([])
+const focusedTaskIds = computed(() => actionTaskIds.value.length ? actionTaskIds.value : props.newTaskIds)
+const actionNotice = ref<{ message: string; taskIds: string[]; paused: boolean } | null>(null)
+const busyTaskIds = ref(new Set<string>())
+const bulkBusy = ref(false)
+const restartMessage = '无法从上次进度继续，需要重新下载'
 const emptyMessage = computed(() => {
   if (refreshing.value) return '正在加载任务…'
   if (loadFailed.value) return '任务列表加载失败'
+  if (focusedTaskIds.value?.length) return '此视图中的任务已移除'
   return filterStatus.value ? '没有符合筛选条件的任务' : '暂无下载任务'
 })
 
@@ -236,10 +295,12 @@ const currentPage = ref(1)
 const pageSize = ref(20)
 const selectedTasks = ref<string[]>([])
 const showDeleteDialog = ref(false)
+const deleteFooter = ref<HTMLElement>()
+const taskHeading = ref<HTMLElement>()
 const deleteFiles = ref(false)
 const deletingTasks = ref(false)
 const pendingDeleteTaskIds = ref<string[]>([])
-const isDeletingAll = ref(false)
+const deleteScope = ref<'all' | 'completed' | 'selected'>('selected')
 
 // 任务原始数据
 const tasks = computed(() => downloadStore.tasks)
@@ -250,9 +311,10 @@ const tasks = computed(() => downloadStore.tasks)
  * - 筛选时：只保留该状态的任务，按创建时间倒序
  */
 const displayTasks = computed(() => {
-  const filtered = tasks.value.slice()
+  const ids = new Set(focusedTaskIds.value)
+  const filtered = ids.size ? tasks.value.filter(task => ids.has(task.task_id)) : tasks.value.slice()
 
-  if (filterStatus.value) {
+  if (filterStatus.value && !ids.size) {
     return filtered
       .filter(task => task.status === filterStatus.value)
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
@@ -289,6 +351,20 @@ const togglePageSelection = () => {
 }
 
 watch([filterStatus, pageSize], () => { currentPage.value = 1 })
+watch(() => props.newTaskIds, async ids => {
+  actionTaskIds.value = []
+  currentPage.value = 1
+  selectedTasks.value = []
+  if (ids?.length) {
+    filterStatus.value = ''
+    await nextTick()
+    taskHeading.value?.focus()
+  }
+}, { immediate: true })
+watch(focusedTaskIds, () => {
+  currentPage.value = 1
+  selectedTasks.value = []
+})
 watch(totalTasks, total => {
   currentPage.value = Math.min(currentPage.value, Math.max(1, Math.ceil(total / pageSize.value)))
 })
@@ -300,52 +376,43 @@ watch(pageTasks, visible => {
 
 const deleteDialogTitle = computed(() => {
   if (pendingDeleteTaskIds.value.length === 0) return '删除任务'
-  if (isDeletingAll.value) return '暂停并删除全部任务'
+  if (deleteScope.value === 'all') return '暂停并删除整个队列'
+  if (deleteScope.value === 'completed') return '删除已完成任务'
   return pendingDeleteTaskIds.value.length > 1 ? '删除选中任务' : '删除任务'
 })
 
 const deleteDialogMessage = computed(() => {
-  if (pendingDeleteTaskIds.value.length === 0) return ''
-  if (isDeletingAll.value) {
-    return `将中止全部下载并删除全部 ${pendingDeleteTaskIds.value.length} 条任务记录，确定继续吗？`
-  }
-  if (pendingDeleteTaskIds.value.length > 1) {
-    return `确定删除选中的 ${pendingDeleteTaskIds.value.length} 条任务记录吗？`
-  }
-  return '确定删除此任务记录吗？'
+  const count = pendingDeleteTaskIds.value.length
+  if (deleteScope.value === 'all') return '将暂停整个队列中的下载和排队，并删除其中 ' + count + ' 项任务。'
+  if (deleteScope.value === 'completed') return '将删除当前视图中的 ' + count + ' 条已完成记录。'
+  return '将删除所选的 ' + count + ' 项任务。'
 })
+
+const focusDeleteCancel = () => deleteFooter.value?.querySelector('button')?.focus()
 
 const taskStats = computed(() => [
   { label: '下载中', value: downloadStore.downloadingTasks.length, icon: Download, tone: 'downloading' },
-  { label: '等待中', value: downloadStore.pendingTasks.length, icon: Clock, tone: 'pending' },
+  { label: '排队中', value: downloadStore.pendingTasks.length, icon: Clock, tone: 'pending' },
   { label: '已完成', value: downloadStore.completedTasks.length, icon: CircleCheck, tone: 'completed' },
   { label: '总任务', value: tasks.value.length, icon: Folder, tone: 'total' }
 ])
 
-// 全量操作可用性
-const canStartAll = computed(() =>
-  tasks.value.some(task => task.status === 'paused' || task.status === 'failed')
-)
-const canPauseAll = computed(() =>
-  tasks.value.some(task => ['downloading', 'pending', 'merging'].includes(task.status))
-)
-const hasCompletedTasks = computed(() =>
-  tasks.value.some(task => task.status === 'completed')
-)
+const isStopped = (task: DownloadTask) => task.status === 'paused' || task.status === 'failed'
+const canPause = (task: DownloadTask) => ['downloading', 'pending', 'merging'].includes(task.status)
+const requiresRestart = (task: DownloadTask) => isStopped(task) && task.resume_state === 'restart_required'
 
-const hasDownloadingSelected = computed(() => {
-  return selectedTasks.value.some(taskId => {
-    const task = tasks.value.find(t => t.task_id === taskId)
-    return task && task.status === 'downloading'
-  })
+const continuationScope = (entries: DownloadTask[]) => ({
+  ready: entries.filter(task => isStopped(task) && !requiresRestart(task)).map(task => task.task_id),
+  restart: entries.filter(requiresRestart).map(task => task.task_id)
 })
 
-const hasPausedSelected = computed(() => {
-  return selectedTasks.value.some(taskId => {
-    const task = tasks.value.find(t => t.task_id === taskId)
-    return task && (task.status === 'paused' || task.status === 'failed')
-  })
-})
+const selectedEntries = computed(() => tasks.value.filter(task => selectedTasks.value.includes(task.task_id)))
+const globalContinue = computed(() => continuationScope(tasks.value))
+const selectedContinue = computed(() => continuationScope(selectedEntries.value))
+const globalPauseIds = computed(() => tasks.value.filter(canPause).map(task => task.task_id))
+const selectedPauseIds = computed(() => selectedEntries.value.filter(canPause).map(task => task.task_id))
+const viewCompletedIds = computed(() => displayTasks.value
+  .filter(task => task.status === 'completed').map(task => task.task_id))
 
 // 方法
 const refreshTasks = async (notify = false) => {
@@ -378,7 +445,7 @@ const getStatusType = (status: string) => {
 
 const getStatusText = (status: string) => {
   const statusMap: Record<string, string> = {
-    'pending': '等待中',
+    'pending': '排队中',
     'downloading': '下载中',
     'merging': '合并中',
     'paused': '已暂停',
@@ -415,26 +482,71 @@ const formatDate = (dateString: string) => {
   return new Date(dateString).toLocaleString('zh-CN')
 }
 
-const pauseTask = async (taskId: string) => {
-  try {
-    await downloadStore.pauseDownload(taskId)
-    ElMessage.success('任务已暂停')
-  } catch (error) {
-    ElMessage.error('暂停失败')
+const taskFileInfo = (task: DownloadTask) => {
+  const requested = task.quality_name || '未知画质'
+  const quality = task.actual_quality_name || (
+    task.status === 'completed' ? '原选 ' + requested : (task.planned_quality_name || requested)
+  )
+  return task.file_size === null ? quality : quality + ' · ' + formatFileSize(task.file_size)
+}
+
+const qualityChange = (task: DownloadTask) => {
+  const actual = task.actual_quality_name
+  const planned = task.planned_quality_name || task.quality_name
+  if (actual && planned && actual !== planned) return '画质由 ' + planned + ' 调整为 ' + actual
+  if (planned && task.quality_name && planned !== task.quality_name) return '已确认调整为 ' + planned
+  return ''
+}
+
+const clearFocusedTasks = () => {
+  if (actionTaskIds.value.length) actionTaskIds.value = []
+  else emit('clear-new-tasks')
+}
+
+const viewActionTasks = async () => {
+  if (!actionNotice.value?.taskIds.length) return
+  actionTaskIds.value = actionNotice.value.taskIds
+  actionNotice.value = null
+  await nextTick()
+  taskHeading.value?.focus()
+}
+
+const setActionNotice = (message: string, affectedIds: string[], previouslyVisible: Set<string>, paused: boolean) => {
+  const visibleNow = new Set(displayTasks.value.map(task => task.task_id))
+  actionNotice.value = {
+    message,
+    taskIds: affectedIds.filter(id => previouslyVisible.has(id) && !visibleNow.has(id)),
+    paused
   }
 }
 
-const resumeTask = async (taskId: string) => {
+const changeTask = async (task: DownloadTask, action: 'pause' | 'resume' | 'restart') => {
+  const id = task.task_id
+  if (busyTaskIds.value.has(id)) return
+  busyTaskIds.value.add(id)
+  const visible = new Set(displayTasks.value.map(entry => entry.task_id))
   try {
-    await downloadStore.resumeDownload(taskId)
-    ElMessage.success('任务已恢复')
-  } catch (error) {
-    ElMessage.error('恢复失败')
+    if (action === 'pause') {
+      await downloadStore.pauseDownload(id)
+      setActionNotice('任务已暂停。', [id], visible, true)
+    } else if (action === 'restart') {
+      await downloadStore.restartDownload(id)
+      setActionNotice('任务已加入队列，将重新下载。', [id], visible, false)
+    } else {
+      const response = await downloadStore.resumeDownload(id)
+      const updated = tasks.value.find(entry => entry.task_id === id)
+      const restartRequired = response.outcome === 'restart_required' || updated?.resume_state === 'restart_required'
+      setActionNotice(restartRequired ? restartMessage + '。' : '任务已加入下载队列。', [id], visible, false)
+    }
+  } catch {
+    ElMessage.error(action === 'pause' ? '暂停失败' : action === 'restart' ? '重新下载失败' : '继续失败')
+  } finally {
+    busyTaskIds.value.delete(id)
   }
 }
 
 const deleteTask = (taskId: string) => {
-  isDeletingAll.value = false
+  deleteScope.value = 'selected'
   pendingDeleteTaskIds.value = [taskId]
   deleteFiles.value = false
   showDeleteDialog.value = true
@@ -447,16 +559,29 @@ const cancelDelete = () => {
 }
 
 const confirmDelete = async () => {
+  if (deletingTasks.value || !pendingDeleteTaskIds.value.length) return
   deletingTasks.value = true
+  const ids = [...pendingDeleteTaskIds.value]
+  const removeFiles = deleteFiles.value
+  let keptSharedFile = false
   try {
-    for (const taskId of pendingDeleteTaskIds.value) {
-      await downloadStore.deleteTask(taskId, deleteFiles.value)
+    if (deleteScope.value === 'completed') {
+      await downloadStore.clearCompletedTasks(ids)
+    } else {
+      if (deleteScope.value === 'all') await downloadStore.pauseTasks(ids)
+      for (const taskId of ids) {
+        if (!tasks.value.some(task => task.task_id === taskId)) continue
+        const result = await downloadStore.deleteTask(taskId, removeFiles)
+        keptSharedFile ||= Boolean(result?.shared_file)
+        pendingDeleteTaskIds.value = pendingDeleteTaskIds.value.filter(id => id !== taskId)
+      }
     }
-    selectedTasks.value = selectedTasks.value.filter(taskId => !pendingDeleteTaskIds.value.includes(taskId))
-    await downloadStore.fetchTasks()
-    await downloadStore.fetchStats()
-    ElMessage.success(deleteFiles.value ? '任务记录和文件已删除' : '任务记录已删除')
+    selectedTasks.value = selectedTasks.value.filter(taskId => !ids.includes(taskId))
+    ElMessage.success(keptSharedFile
+      ? '任务记录已删除，其他任务仍引用的文件已保留'
+      : removeFiles ? '任务记录和文件已删除' : '任务记录已删除')
     cancelDelete()
+    void refreshTasks()
   } catch (error) {
     ElMessage.error('删除失败')
   } finally {
@@ -464,125 +589,91 @@ const confirmDelete = async () => {
   }
 }
 
-const openFile = async (filePath: string) => {
+const openFile = async (filePath: string, reveal = false) => {
   if (!window.electronAPI) {
     ElMessage.error('系统文件打开功能不可用')
     return
   }
 
   try {
-    const opened = await window.electronAPI.openFile(filePath)
+    const opened = reveal
+      ? await window.electronAPI.openFileDirectory(filePath)
+      : await window.electronAPI.openFile(filePath)
     if (!opened) ElMessage.error('文件不存在或已被移动')
   } catch (error: any) {
-    ElMessage.error(error.message || '无法使用系统默认应用打开文件')
+    ElMessage.error(error.message || (reveal ? '无法在文件夹中显示文件' : '无法使用系统默认应用播放'))
   }
 }
 
 const handleBatchCommand = (command: string) => {
   switch (command) {
-    case 'start': return startAllTasks()
-    case 'pause': return pauseAllTasks()
+    case 'start': return continueTasks(globalContinue.value)
+    case 'pause': return pauseTasks(globalPauseIds.value)
     case 'clear': return deleteCompletedTasks()
     case 'delete': return pauseAndDeleteAllTasks()
   }
 }
 
-// ---- 全量操作 ----
-const startAllTasks = async () => {
-  const ids = tasks.value
-    .filter(task => task.status === 'paused' || task.status === 'failed')
-    .map(task => task.task_id)
-  if (!ids.length) return
+const continueTasks = async (scope: ReturnType<typeof continuationScope>) => {
+  if (bulkBusy.value || !scope.ready.length) return
+  const { ready, restart } = scope
+  const visible = new Set(displayTasks.value.map(task => task.task_id))
+  const queued: string[] = []
+  let skipped = restart.length
+  let failed = 0
+  bulkBusy.value = true
   try {
-    let done = 0
-    for (const taskId of ids) {
-      await downloadStore.resumeDownload(taskId)
-      done += 1
+    for (const id of ready) {
+      try {
+        const response = await downloadStore.resumeDownload(id)
+        const task = tasks.value.find(entry => entry.task_id === id)
+        if (response.outcome === 'restart_required' || task?.resume_state === 'restart_required') skipped += 1
+        else queued.push(id)
+      } catch {
+        failed += 1
+      }
     }
-    await downloadStore.fetchStats()
-    ElMessage.success(`已开始 ${done} 个任务`)
-  } catch (error) {
-    ElMessage.error('全部开始失败')
+    const feedback = ['已将 ' + queued.length + ' 项加入下载队列。']
+    if (skipped) feedback.push(skipped + ' 项需重新下载，已跳过。')
+    if (failed) feedback.push(failed + ' 项继续失败。')
+    setActionNotice(feedback.join(''), queued, visible, false)
+  } finally {
+    bulkBusy.value = false
   }
 }
 
-const pauseAllTasks = async () => {
-  const ids = tasks.value
-    .filter(task => ['downloading', 'pending', 'merging'].includes(task.status))
-    .map(task => task.task_id)
-  if (!ids.length) return
+const pauseTasks = async (ids: string[]) => {
+  if (bulkBusy.value || !ids.length) return
+  const visible = new Set(displayTasks.value.map(task => task.task_id))
+  bulkBusy.value = true
   try {
-    let done = 0
-    for (const taskId of ids) {
-      await downloadStore.pauseDownload(taskId)
-      done += 1
-    }
-    await downloadStore.fetchStats()
-    ElMessage.success(`已暂停 ${done} 个任务`)
-  } catch (error) {
-    ElMessage.error('全部暂停失败')
+    await downloadStore.pauseTasks(ids)
+    await downloadStore.fetchTasks()
+    const paused = ids.filter(id => tasks.value.some(task => task.task_id === id && task.status === 'paused'))
+    setActionNotice('已暂停 ' + paused.length + ' 项任务。', paused, visible, true)
+  } catch {
+    ElMessage.error('批量暂停失败')
+  } finally {
+    bulkBusy.value = false
   }
 }
 
 const pauseAndDeleteAllTasks = () => {
-  isDeletingAll.value = true
+  deleteScope.value = 'all'
   pendingDeleteTaskIds.value = tasks.value.map(task => task.task_id)
   deleteFiles.value = false
   showDeleteDialog.value = true
 }
 
-const deleteCompletedTasks = async () => {
-  try {
-    await ElMessageBox.confirm('确定删除全部已完成的任务记录吗？', '删除已完成', {
-      confirmButtonText: '确定',
-      cancelButtonText: '取消',
-      type: 'warning'
-    })
-  } catch (error) {
-    return // 用户取消
-  }
-
-  try {
-    const response = await downloadStore.clearCompletedTasks()
-    await downloadStore.fetchStats()
-    ElMessage.success(response?.message || '已完成任务记录已删除')
-  } catch (error) {
-    console.error('删除已完成任务失败:', error)
-    ElMessage.error('删除已完成任务失败')
-  }
-}
-
-// ---- 选中操作 ----
-const pauseSelectedTasks = async () => {
-  try {
-    for (const taskId of selectedTasks.value) {
-      const task = tasks.value.find(t => t.task_id === taskId)
-      if (task && task.status === 'downloading') {
-        await downloadStore.pauseDownload(taskId)
-      }
-    }
-    ElMessage.success('选中任务已暂停')
-  } catch (error) {
-    ElMessage.error('暂停失败')
-  }
-}
-
-const resumeSelectedTasks = async () => {
-  try {
-    for (const taskId of selectedTasks.value) {
-      const task = tasks.value.find(t => t.task_id === taskId)
-      if (task && (task.status === 'paused' || task.status === 'failed')) {
-        await downloadStore.resumeDownload(taskId)
-      }
-    }
-    ElMessage.success('选中任务已开始')
-  } catch (error) {
-    ElMessage.error('开始失败')
-  }
+const deleteCompletedTasks = () => {
+  deleteScope.value = 'completed'
+  pendingDeleteTaskIds.value = [...viewCompletedIds.value]
+  deleteFiles.value = false
+  showDeleteDialog.value = true
 }
 
 const deleteSelectedTasks = () => {
-  isDeletingAll.value = false
+  deleteScope.value = 'selected'
   pendingDeleteTaskIds.value = [...selectedTasks.value]
   deleteFiles.value = false
   showDeleteDialog.value = true
@@ -820,7 +911,7 @@ onMounted(() => refreshTasks())
   .col-progress { width: clamp(120px, 15vw, 190px); }
   .col-status { width: 86px; }
   .col-file { width: clamp(125px, 14vw, 158px); }
-  .col-actions { width: 96px; }
+  .col-actions { width: 126px; }
 
   thead {
     position: sticky;
@@ -946,6 +1037,31 @@ onMounted(() => refreshTasks())
 .row-actions {
   gap: 10px;
 }
+
+.new-task-filter {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.task-action-notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  padding: 8px clamp(12px, 2vw, 22px);
+  background: var(--surface-raised);
+
+  :deep(.el-button + .el-button) { margin-left: 0; }
+}
+
+.restart-note {
+  margin-top: 4px;
+  color: var(--el-color-warning-dark-2);
+  font-size: 12px;
+}
+
+.quality-change { color: var(--el-color-warning-dark-2); }
 
 :deep(.el-tag--warning) {
   --el-tag-text-color: var(--el-color-warning-dark-2);

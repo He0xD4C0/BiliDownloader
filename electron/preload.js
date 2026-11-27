@@ -14,7 +14,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getAppInfo: () => ipcRenderer.invoke('get-app-info'),
   
   // 选择下载目录
-  selectDownloadDirectory: () => ipcRenderer.invoke('select-download-directory'),
+  selectDownloadDirectory: (currentPath) => ipcRenderer.invoke('select-download-directory', currentPath),
   
   // 打开文件所在目录
   openFileDirectory: (filePath) => ipcRenderer.invoke('open-file-directory', filePath),
