@@ -4,36 +4,35 @@
       ref="formRef"
       :model="form"
       :rules="rules"
-      label-width="100px"
       label-position="top"
     >
       <!-- URL输入 -->
-      <el-form-item label="B站视频链接" prop="url">
+      <el-form-item label="B 站视频链接" prop="url">
         <el-input
           v-model="form.url"
-          placeholder="请输入B站视频链接（支持BV号、AV号、完整URL）"
+          placeholder="粘贴链接，或输入 BV 号、AV 号"
           clearable
-          @change="handleUrlChange"
+          :disabled="parsingUrl"
+          @input="handleUrlChange"
         >
           <template #append>
-            <el-button :icon="Search" @click="parseUrl" :loading="parsingUrl">
+            <el-button :icon="Search" @click="parseUrl" :loading="parsingUrl" :disabled="!form.url.trim()">
               解析
             </el-button>
           </template>
         </el-input>
-        <div class="form-tip">
-          支持格式：BV1xx411x7xx、av170001、https://www.bilibili.com/video/BV1xx411x7xx
-        </div>
       </el-form-item>
       
       <!-- 视频信息展示 -->
       <div v-if="videoInfo" class="video-info-card">
         <div class="video-header">
           <el-image
+            v-if="videoInfo.cover_url"
             :src="videoInfo.cover_url"
             fit="cover"
             class="video-cover"
             :preview-src-list="[videoInfo.cover_url]"
+            preview-teleported
           />
           <div class="video-details">
             <h3 class="video-title">{{ videoInfo.title }}</h3>
@@ -88,18 +87,18 @@
           <!-- 分P下载归类：下载到以视频标题命名的子文件夹 -->
           <el-form-item label="下载到子目录">
             <div class="subdir-option">
-              <el-switch v-model="form.downloadToSubdir" />
+              <el-switch v-model="form.downloadToSubdir" aria-label="下载到子目录" />
               <span class="subdir-label">开启后，分P文件将保存到「{{ videoInfo.title }}」子文件夹</span>
             </div>
             <div class="form-tip">
-              文件名自动设为 分P号+分P名称，文件夹位于所选保存路径下；单分P视频不提供此功能
+              文件名使用分 P 序号和名称。
             </div>
           </el-form-item>
         </div>
       </div>
       
       <!-- 画质选择 -->
-      <el-form-item label="选择画质" prop="quality">
+      <el-form-item v-if="videoInfo" label="选择画质" prop="quality">
         <el-select v-model="form.quality" placeholder="请选择画质" class="quality-select">
           <el-option-group
             v-for="group in qualityGroups"
@@ -141,7 +140,7 @@
       </el-form-item>
       
       <!-- 下载设置 -->
-      <el-collapse v-model="activeCollapse">
+      <el-collapse v-if="videoInfo" v-model="activeCollapse">
         <el-collapse-item title="高级设置" name="advanced">
           <!-- 保存路径 -->
           <el-form-item label="保存路径">
@@ -176,13 +175,13 @@
       </el-collapse>
       
       <!-- 表单操作 -->
-      <el-form-item class="form-actions">
+      <el-form-item class="dialog-form-actions">
         <el-button @click="handleCancel">取消</el-button>
         <el-button
           type="primary"
           @click="handleSubmit"
           :loading="submitting"
-          :disabled="!form.url || !videoInfo || (isMultiPageVideo && form.selectedPages.length === 0)"
+          :disabled="!videoInfo || form.quality === null || parsingUrl || (isMultiPageVideo && form.selectedPages.length === 0)"
         >
           开始下载<span v-if="form.selectedPages.length > 1">（{{ form.selectedPages.length }}）</span>
         </el-button>
@@ -368,7 +367,6 @@ const parseUrl = async () => {
       form.audioQuality = null  // 未登录不支持音频选择
     }
     
-    ElMessage.success('视频信息获取成功')
   } catch (error: any) {
     console.error('解析视频失败:', error)
     ElMessage.error(error.response?.data?.detail || '解析视频失败，请检查链接格式')
@@ -476,11 +474,10 @@ onMounted(async () => {
 
 <style lang="scss" scoped>
 .new-download-form {
-  padding: 8px 0;
-  
   .form-tip {
+    flex-basis: 100%;
     font-size: 12px;
-    color: #909399;
+    color: var(--muted);
     margin-top: 4px;
   }
   
@@ -490,39 +487,39 @@ onMounted(async () => {
     padding: 1px 6px;
     border-radius: 4px;
     font-size: 10px;
-    color: #e6a23c;
-    background: #fdf6ec;
-    border: 1px solid #e6a23c33;
+    color: var(--el-color-warning-dark-2);
+    background: var(--el-color-warning-light-9);
     margin-left: 4px;
   }
   
   .video-info-card {
-    border: 1px solid #e6e6e6;
-    border-radius: 8px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
     padding: 16px;
     margin-bottom: 16px;
-    background-color: #fafafa;
+    background-color: var(--surface-raised);
     
     .video-header {
       display: flex;
       gap: 16px;
       
       .video-cover {
-        width: 160px;
-        height: 90px;
-        border-radius: 4px;
+        width: clamp(76px, 20vw, 144px);
+        aspect-ratio: 16 / 9;
+        border-radius: 8px;
         overflow: hidden;
         flex-shrink: 0;
       }
       
       .video-details {
         flex: 1;
+        min-width: 0;
         
         .video-title {
           margin: 0 0 8px;
           font-size: 16px;
           font-weight: 500;
-          color: #303133;
+          color: var(--ink);
           line-height: 1.4;
           display: -webkit-box;
           -webkit-line-clamp: 2;
@@ -540,7 +537,7 @@ onMounted(async () => {
             align-items: center;
             gap: 4px;
             font-size: 12px;
-            color: #606266;
+            color: var(--muted);
             
             .el-icon {
               font-size: 14px;
@@ -553,7 +550,7 @@ onMounted(async () => {
     .video-pages {
       margin-top: 16px;
       padding-top: 16px;
-      border-top: 1px solid #e6e6e6;
+      border-top: 1px solid var(--line);
     }
 
     // 分P下载归类开关
@@ -564,7 +561,8 @@ onMounted(async () => {
 
       .subdir-label {
         font-size: 13px;
-        color: #303133;
+        color: var(--ink);
+        overflow-wrap: anywhere;
       }
     }
 
@@ -579,17 +577,17 @@ onMounted(async () => {
 
         .page-count {
           font-size: 12px;
-          color: #909399;
+          color: var(--muted);
         }
       }
 
       .page-list {
         max-height: 220px;
         overflow-y: auto;
-        border: 1px solid #e6e6e6;
-        border-radius: 6px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
         padding: 8px 12px;
-        background-color: #fff;
+        background-color: var(--surface);
 
         .page-checkbox-group {
           display: flex;
@@ -601,7 +599,7 @@ onMounted(async () => {
             width: 100%;
             margin-right: 0;
             padding: 6px 4px;
-            border-bottom: 1px dashed #f0f0f0;
+            border-bottom: 1px solid var(--line);
 
             &:last-child {
               border-bottom: none;
@@ -617,7 +615,7 @@ onMounted(async () => {
               .page-label {
                 flex-shrink: 0;
                 font-weight: 500;
-                color: #409EFF;
+                color: var(--accent);
                 min-width: 32px;
               }
 
@@ -626,13 +624,13 @@ onMounted(async () => {
                 overflow: hidden;
                 text-overflow: ellipsis;
                 white-space: nowrap;
-                color: #303133;
+                color: var(--ink);
               }
 
               .page-duration {
                 flex-shrink: 0;
                 font-size: 12px;
-                color: #909399;
+                color: var(--muted);
               }
             }
           }
@@ -656,12 +654,12 @@ onMounted(async () => {
     }
     
     .quality-desc {
-      color: #909399;
+      color: var(--muted);
       flex: 1;
     }
     
     .quality-resolution {
-      color: #606266;
+      color: var(--muted);
       font-family: monospace;
     }
   }
@@ -676,18 +674,10 @@ onMounted(async () => {
     }
   }
   
-  .form-actions {
-    margin-top: 24px;
-    text-align: right;
-    
-    .el-button {
-      min-width: 100px;
-    }
-  }
 }
 
 :deep(.el-collapse-item__header) {
-  font-weight: 500;
-  color: #303133;
+  font-weight: 650;
+  color: var(--ink);
 }
 </style>

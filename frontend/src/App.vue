@@ -1,105 +1,65 @@
 <template>
-  <div id="app">
-    <el-container class="layout-container">
-      <!-- 主内容区 -->
-      <el-container class="main-container">
-        <!-- 顶部导航栏 -->
-        <el-header height="60px" class="header" v-if="showHeader">
-          <div class="header-left">
-            <div class="header-logo" @click="router.push('/')">
-              <img src="/vite.svg" alt="BiliDownloader Logo" />
-              <span class="app-name">BiliDownloader</span>
-              <span class="app-version">v{{ appVersion }}</span>
-            </div>
-            <el-breadcrumb separator="/" class="breadcrumb" v-if="breadcrumb.length">
-              <el-breadcrumb-item v-for="item in breadcrumb" :key="item.path">
-                {{ item.title }}
-              </el-breadcrumb-item>
-            </el-breadcrumb>
-          </div>
-          
-          <div class="header-right">
-            <!-- 登录 / 用户菜单 -->
-            <el-dropdown
-              v-if="userStore.isLoggedIn"
-              trigger="click"
-              @command="handleUserCommand"
-            >
-              <div class="user-avatar-wrap">
-                <el-avatar :size="32" :src="userStore.user?.avatar_url || undefined">
-                  {{ userAvatarFallback }}
-                </el-avatar>
-                <span class="username-text">{{ userStore.user?.username }}</span>
-                <el-icon class="dropdown-arrow"><ArrowDown /></el-icon>
-              </div>
-              <template #dropdown>
-                <el-dropdown-menu>
-                  <el-dropdown-item command="logout">
-                    <el-icon><SwitchButton /></el-icon>退出登录
-                  </el-dropdown-item>
-                  <el-dropdown-item command="about">
-                    <el-icon><InfoFilled /></el-icon>关于
-                  </el-dropdown-item>
-                </el-dropdown-menu>
-              </template>
-            </el-dropdown>
-            <el-button v-else size="small" @click="showLoginDialog = true">
-              登录
-            </el-button>
+  <div class="app-shell">
+    <header class="app-header">
+      <div class="app-header-inner">
+        <RouterLink class="app-brand" to="/" aria-label="BiliDownloader 下载工作台">
+          <span class="brand-mark"><el-icon><Download /></el-icon></span>
+          <span>BiliDownloader</span>
+        </RouterLink>
 
-            <el-button size="small" @click="showSettingsDialog = true">
-              <el-icon><Setting /></el-icon>
-              设置
-            </el-button>
+        <div class="app-actions">
+          <ElButton :icon="Setting" @click="showSettingsDialog = true">设置</ElButton>
+          <ElButton
+            :icon="darkTheme ? Sunny : Moon"
+            :aria-label="darkTheme ? '切换到浅色主题' : '切换到深色主题'"
+            :title="darkTheme ? '切换到浅色主题' : '切换到深色主题'"
+            @click="toggleTheme"
+          />
+          <el-dropdown v-if="userStore.isLoggedIn" trigger="click" @command="handleUserCommand">
+            <button type="button" class="user-avatar-wrap" aria-label="账号菜单">
+              <el-avatar :size="26" :src="userStore.user?.avatar_url || undefined">
+                {{ userAvatarFallback }}
+              </el-avatar>
+              <span class="username-text">{{ userStore.user?.username }}</span>
+              <el-icon><ArrowDown /></el-icon>
+            </button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="logout">
+                  <el-icon><SwitchButton /></el-icon>退出登录
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+          <ElButton v-else :icon="User" @click="showLoginDialog = true">登录 B 站</ElButton>
+          <ElButton
+            v-if="route.name !== 'Home'"
+            type="primary"
+            :icon="Plus"
+            @click="showNewDownloadDialog = true"
+          >
+            新建下载
+          </ElButton>
+        </div>
+      </div>
+    </header>
 
-            <el-button text class="theme-btn" @click="toggleTheme">
-              <el-icon><Moon /></el-icon>
-              <span>主题</span>
-            </el-button>
-            
-            <el-button
-              type="primary"
-              size="small"
-              @click="showNewDownloadDialog = true"
-              class="new-download-btn"
-            >
-              <el-icon><Plus /></el-icon>新建下载
-            </el-button>
-          </div>
-        </el-header>
-        
-        <!-- 主要内容 -->
-        <el-main class="main-content">
-          <router-view v-slot="{ Component }">
-            <transition name="fade" mode="out-in">
-              <component :is="Component" />
-            </transition>
-          </router-view>
-        </el-main>
-        
-        <!-- 底部信息栏 -->
-        <el-footer height="40px" class="footer" v-if="showFooter">
-          <div class="footer-content">
-            <div class="footer-left">
-              <span>BiliDownloader v{{ appVersion }}</span>
-              <el-divider direction="vertical" />
-              <span>仅供学习交流使用</span>
-            </div>
-            <div class="footer-right">
-              <span>当前下载速度: {{ downloadSpeed }}</span>
-              <el-divider direction="vertical" />
-              <span>任务数: {{ activeTasks }}/{{ maxTasks }}</span>
-            </div>
-          </div>
-        </el-footer>
-      </el-container>
-    </el-container>
-    
+    <main class="app-content">
+      <RouterView v-slot="{ Component }">
+        <component :is="Component" @new-download="showNewDownloadDialog = true" />
+      </RouterView>
+      <footer class="app-footer">
+        <RouterLink to="/about">关于 BiliDownloader</RouterLink>
+        <span>v{{ appVersion }}</span>
+      </footer>
+    </main>
+
     <!-- 新建下载对话框 -->
     <el-dialog
       v-model="showNewDownloadDialog"
       title="新建下载"
-      width="600px"
+      width="min(650px, calc(100% - 32px))" class="app-dialog"
+      destroy-on-close
       :close-on-click-modal="false"
     >
       <NewDownloadForm @success="onDownloadSuccess" @cancel="showNewDownloadDialog = false" />
@@ -109,7 +69,8 @@
     <el-dialog
       v-model="showSettingsDialog"
       title="下载设置"
-      width="500px"
+      width="min(620px, calc(100% - 32px))" class="app-dialog"
+      destroy-on-close
     >
       <DownloadSettingsForm @success="onSettingsSaved" @cancel="showSettingsDialog = false" />
     </el-dialog>
@@ -118,7 +79,7 @@
     <el-dialog
       v-model="showLoginDialog"
       title="B站账号登录"
-      width="400px"
+      width="min(420px, calc(100% - 32px))" class="app-dialog"
       :close-on-click-modal="false"
       :destroy-on-close="true"
       @opened="handleBilibiliLogin"
@@ -134,7 +95,6 @@
           <div class="qrcode-image">
             <img :src="qrcodeInfo.qrcode_img" alt="B站登录二维码" />
           </div>
-          <p class="qrcode-tip">请使用B站APP扫描二维码登录</p>
           <div class="qrcode-status">
             <el-alert
               :title="loginStatus.title"
@@ -160,10 +120,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, reactive, onMounted, onUnmounted } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
-import { Loading, Setting } from '@element-plus/icons-vue'
+import { ref, computed, reactive, watchEffect, onMounted, onUnmounted } from 'vue'
+import { useRoute } from 'vue-router'
+import { ElButton, ElMessage } from 'element-plus'
+import { Download, Loading, Moon, Plus, Setting, Sunny, User } from '@element-plus/icons-vue'
 import QRCode from 'qrcode'
 import { useUserStore } from '@/stores/user'
 import { useDownloadStore } from '@/stores/download'
@@ -173,7 +133,6 @@ import DownloadSettingsForm from '@/components/download/SettingsForm.vue'
 import GlobalNotification from '@/components/common/GlobalNotification.vue'
 
 const route = useRoute()
-const router = useRouter()
 const userStore = useUserStore()
 const downloadStore = useDownloadStore()
 
@@ -192,43 +151,36 @@ const loginStatus = reactive({
 const checkLoginTimer = ref<ReturnType<typeof setTimeout> | null>(null)
 const refreshingQrcode = ref(false)
 
-// 计算属性
-const showHeader = computed(() => true)
-const showFooter = computed(() => true)
 const appVersion = ref('dev')
+const systemTheme = window.matchMedia('(prefers-color-scheme: dark)')
+const themeMeta = document.querySelector<HTMLMetaElement>('meta[name="color-scheme"]')
+const selectedTheme = ref(themeMeta?.content || 'light dark')
+const systemDark = ref(systemTheme.matches)
+const darkTheme = computed(() => selectedTheme.value === 'dark' || (
+  selectedTheme.value !== 'light' && systemDark.value
+))
 
-const breadcrumb = computed(() => {
-  const crumbs = []
-  const pathArr = route.path.split('/').filter(Boolean)
-  
-  let currentPath = ''
-  for (const segment of pathArr) {
-    currentPath += `/${segment}`
-    crumbs.push({
-      path: currentPath,
-      title: segment.charAt(0).toUpperCase() + segment.slice(1)
-    })
+watchEffect(() => {
+  if (themeMeta) themeMeta.content = selectedTheme.value
+  document.documentElement.classList.toggle('dark', darkTheme.value)
+})
+
+const syncSystemTheme = (event: MediaQueryListEvent) => {
+  systemDark.value = event.matches
+}
+
+const syncStoredTheme = (event: StorageEvent) => {
+  if (event.key === 'app-theme' || event.key === null) {
+    selectedTheme.value = event.newValue === 'light' || event.newValue === 'dark'
+      ? event.newValue
+      : 'light dark'
   }
-  
-  return crumbs
-})
+}
 
-const downloadSpeed = computed(() => {
-  return downloadStore.downloadSpeed > 0 
-    ? `${(downloadStore.downloadSpeed / 1024).toFixed(2)} MB/s`
-    : '0 KB/s'
-})
-
-const activeTasks = computed(() => downloadStore.activeTasks)
-const maxTasks = computed(() => downloadStore.maxConcurrentDownloads)
 const userAvatarFallback = computed(() => userStore.user?.username?.trim().charAt(0).toUpperCase() || 'B')
 
 // 方法
 const handleUserCommand = async (command: string) => {
-  if (command === 'about') {
-    await router.push('/about')
-    return
-  }
   if (command === 'logout') {
     await userStore.logout()
     ElMessage.success('已退出登录')
@@ -236,7 +188,18 @@ const handleUserCommand = async (command: string) => {
 }
 
 const toggleTheme = () => {
-  ElMessage.info('主题切换功能正在开发中')
+  const nextDark = !darkTheme.value
+  selectedTheme.value = nextDark === systemDark.value ? 'light dark' : nextDark ? 'dark' : 'light'
+
+  try {
+    if (selectedTheme.value === 'light dark') {
+      localStorage.removeItem('app-theme')
+    } else {
+      localStorage.setItem('app-theme', selectedTheme.value)
+    }
+  } catch {
+    // The selected scheme still applies if storage is unavailable.
+  }
 }
 
 const onDownloadSuccess = () => {
@@ -404,6 +367,8 @@ const stopTaskUpdates = downloadStore.setupTaskUpdates()
 
 // 初始化
 onMounted(async () => {
+  systemTheme.addEventListener('change', syncSystemTheme)
+  window.addEventListener('storage', syncStoredTheme)
   if (window.electronAPI) {
     try {
       const appInfo = await window.electronAPI.getAppInfo()
@@ -419,15 +384,11 @@ onMounted(async () => {
   if (session.status === 'offline') {
     console.info('当前网络不可用，已跳过账号有效性检查')
   }
-
-  try {
-    await downloadStore.fetchTasks()
-  } catch (error) {
-    console.warn('加载下载任务失败:', error)
-  }
 })
 
 onUnmounted(() => {
+  systemTheme.removeEventListener('change', syncSystemTheme)
+  window.removeEventListener('storage', syncStoredTheme)
   stopTaskUpdates()
   if (checkLoginTimer.value) {
     clearTimeout(checkLoginTimer.value)
@@ -435,242 +396,141 @@ onUnmounted(() => {
 })
 </script>
 
-<style lang="scss" scoped>
-.layout-container {
-  height: 100vh;
-  
-  .main-container {
-    width: 100%;
+<style scoped lang="scss">
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
 
-    .header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      border-bottom: 1px solid #e6e6e6;
-      background-color: #fff;
-      
-      .header-left {
-        display: flex;
-        align-items: center;
-        gap: 20px;
-        
-        .header-logo {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          cursor: pointer;
-          user-select: none;
+.app-header {
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
 
-          img {
-            width: 32px;
-            height: 32px;
-          }
+.app-header-inner,
+.app-content {
+  width: min(100%, 1380px);
+  margin-inline: auto;
+  padding-inline: clamp(16px, 3.2vw, 42px);
+}
 
-          .app-name {
-            color: #303133;
-            font-size: 18px;
-            font-weight: 700;
-            white-space: nowrap;
-          }
+.app-header-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  min-height: 64px;
+  gap: 10px 20px;
+  padding-block: 10px;
+}
 
-          .app-version {
-            color: #909399;
-            font-size: 12px;
-          }
-        }
+.app-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--ink);
+  text-decoration: none;
+  font-size: 17px;
+  font-weight: 750;
+  letter-spacing: -0.025em;
+}
 
-        .breadcrumb {
-          :deep(.el-breadcrumb__inner) {
-            font-weight: normal;
-          }
-        }
-      }
-      
-      .header-right {
-        display: flex;
-        align-items: center;
-        flex-wrap: wrap;
-        gap: 16px;
-        
-        .user-avatar-wrap {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          cursor: pointer;
-          padding: 4px 8px;
-          border-radius: 6px;
-          transition: background-color 0.2s;
-          
-          &:hover {
-            background-color: #f0f2f5;
-          }
-          
-          .dropdown-arrow {
-            color: #909399;
-            font-size: 12px;
-          }
+.brand-mark {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: #123c34;
+  color: #c6f5de;
+  font-size: 19px;
+}
 
-          .username-text {
-            font-size: 14px;
-            color: #303133;
-            font-weight: 500;
-          }
-        }
-        
-        .theme-btn {
-          display: flex;
-          align-items: center;
-          gap: 5px;
-          color: #606266;
+.app-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
 
-          &:hover {
-            color: #409EFF;
-          }
-        }
-        
-        .new-download-btn {
-          .el-icon {
-            margin-right: 5px;
-          }
-        }
-      }
-    }
-    
-    .main-content {
-      padding: 0;
-      background-color: #fff;
-      overflow-y: auto;
-    }
-    
-    .footer {
-      border-top: 1px solid #e6e6e6;
-      background-color: #fff;
-      
-      .footer-content {
-        height: 100%;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        font-size: 12px;
-        color: #909399;
-        
-        .footer-left,
-        .footer-right {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-        }
-      }
-    }
+  :deep(.el-button + .el-button) {
+    margin-left: 0;
   }
 }
 
-// 登录对话框样式
-.login-dialog-body {
-  padding: 0 8px;
-  
-  .login-form {
-    .login-btn {
-      width: 100%;
-      margin-top: 8px;
-    }
+.user-avatar-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 190px;
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+
+  &:hover {
+    background: var(--surface-raised);
   }
-  
-  .login-divider {
-    position: relative;
-    text-align: center;
-    margin: 24px 0;
-    
-    &::before {
-      content: '';
-      position: absolute;
-      top: 50%;
-      left: 0;
-      right: 0;
-      height: 1px;
-      background-color: #e6e6e6;
-    }
-    
-    span {
-      position: relative;
-      display: inline-block;
-      padding: 0 16px;
-      background-color: white;
-      color: #909399;
-      font-size: 14px;
-    }
-  }
-  
-  .alternative-login {
-    .bilibili-login-btn {
-      width: 100%;
-      
-      .bilibili-icon {
-        width: 20px;
-        height: 20px;
-        margin-right: 8px;
-        vertical-align: middle;
-      }
-    }
+}
+
+.username-text {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.app-content {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 22px;
+  padding-top: clamp(16px, 2.5vw, 30px);
+}
+
+.app-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: auto;
+  padding-block: 10px 20px;
+  color: var(--muted);
+  font-size: 12px;
+
+  a {
+    color: inherit;
+    text-underline-offset: 3px;
   }
 }
 
 .bilibili-login-dialog {
   text-align: center;
-  
+
   .loading-qrcode {
-    padding: 40px 0;
-    
-    .loading-icon {
-      font-size: 48px;
-      color: #409EFF;
-      margin-bottom: 16px;
-    }
-    
-    p {
-      margin: 0;
-      color: #909399;
-    }
+    padding-block: 32px;
+    color: var(--muted);
   }
-  
-  .qrcode-content {
-    .qrcode-image {
-      margin-bottom: 20px;
-      
-      img {
-        width: 200px;
-        height: 200px;
-        border: 1px solid #e6e6e6;
-        border-radius: 8px;
-      }
-    }
-    
-    .qrcode-tip {
-      margin: 0 0 20px;
-      color: #606266;
-      font-size: 14px;
-    }
-    
-    .qrcode-status {
-      margin-bottom: 20px;
-    }
-    
-    .qrcode-actions {
-      display: flex;
-      gap: 12px;
-      justify-content: center;
-    }
+
+  .loading-icon {
+    color: var(--accent);
+    margin-bottom: 12px;
   }
-}
 
-// 过渡动画
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 0.3s ease;
-}
+  .qrcode-image img {
+    width: 200px;
+    height: 200px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+  }
 
-.fade-enter-from,
-.fade-leave-to {
-  opacity: 0;
+  .qrcode-status {
+    margin-block: 14px;
+  }
+
+  .qrcode-actions {
+    display: flex;
+    justify-content: center;
+  }
 }
 </style>

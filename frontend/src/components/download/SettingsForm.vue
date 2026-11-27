@@ -1,128 +1,94 @@
 <template>
   <div class="settings-form">
-    <el-form
-      ref="formRef"
-      :model="form"
-      :rules="rules"
-      label-width="120px"
-      label-position="left"
-    >
-      <!-- 下载路径 -->
-      <el-form-item label="默认下载路径" prop="default_download_path">
-        <el-input
-          v-model="form.default_download_path"
-          placeholder="请输入下载路径"
-          clearable
-        >
-          <template #append>
-            <el-button @click="selectDownloadPath">浏览</el-button>
-          </template>
-        </el-input>
-      </el-form-item>
-      
-      <!-- 默认画质 -->
-      <el-form-item label="默认画质" prop="default_quality">
-        <el-select v-model="form.default_quality" placeholder="请选择默认画质">
-          <el-option label="360P" value="360p" />
-          <el-option label="480P" value="480p" />
-          <el-option label="720P" value="720p" />
-          <el-option label="1080P" value="1080p" />
-          <el-option label="4K" value="4k" />
-        </el-select>
-      </el-form-item>
-      
-      <!-- 最大并发下载数 -->
-      <el-form-item label="最大并发下载数" prop="max_concurrent_downloads">
-        <el-slider
-          v-model="form.max_concurrent_downloads"
-          :min="1"
-          :max="10"
-          :step="1"
-          show-stops
-          show-input
-        />
-      </el-form-item>
-      
-      <!-- 单线程限速 -->
-      <el-form-item label="单线程限速" prop="download_speed_limit">
-        <div class="speed-limit-field">
-          <el-input-number
-            v-model="form.download_speed_limit"
-            :min="0"
-            :max="102400"
-            :step="16"
-            controls-position="right"
-            style="width: 180px"
-          />
-          <span class="speed-limit-unit">KB/s（0 表示不限速；对每个下载任务各自的传输流生效）</span>
-        </div>
-      </el-form-item>
+    <el-form ref="formRef" :model="form" :rules="rules" label-position="top">
+      <fieldset class="settings-group">
+        <legend>默认下载</legend>
+        <div class="settings-grid">
+          <el-form-item label="默认下载路径" prop="default_download_path" class="full-width">
+            <el-input v-model="form.default_download_path" placeholder="请输入下载路径" clearable>
+              <template #append>
+                <el-button @click="selectDownloadPath">浏览</el-button>
+              </template>
+            </el-input>
+          </el-form-item>
 
-      <!-- 自动管理：低速自动暂停 -->
-      <el-form-item label="低速自动暂停">
-        <div class="auto-manage-field">
-          <el-switch v-model="form.slow_speed_auto_pause" />
-          <span class="auto-manage-desc">下载速率持续低于阈值时，自动暂停并移至队尾进入"等待中"</span>
+          <el-form-item label="默认画质" prop="default_quality">
+            <el-select v-model="form.default_quality" placeholder="请选择默认画质">
+              <el-option label="360P" value="360p" />
+              <el-option label="480P" value="480p" />
+              <el-option label="720P" value="720p" />
+              <el-option label="1080P" value="1080p" />
+              <el-option label="4K" value="4k" />
+            </el-select>
+          </el-form-item>
+
+          <el-form-item label="下载后处理">
+            <div class="checkbox-group">
+              <el-checkbox v-model="form.auto_merge" label="自动合并音视频" />
+              <el-checkbox v-model="form.delete_temp_files" label="下载完成后删除临时文件" />
+            </div>
+          </el-form-item>
         </div>
-      </el-form-item>
-      <template v-if="form.slow_speed_auto_pause">
-        <el-form-item label="低速阈值" prop="slow_speed_threshold_kbps">
-          <div class="auto-manage-field">
+      </fieldset>
+
+      <fieldset class="settings-group">
+        <legend>下载队列</legend>
+        <div class="settings-grid">
+          <el-form-item label="最大并发下载数" prop="max_concurrent_downloads">
+            <el-input-number v-model="form.max_concurrent_downloads" :min="1" :max="10" controls-position="right" />
+          </el-form-item>
+
+          <el-form-item label="单线程限速" prop="download_speed_limit">
             <el-input-number
-              v-model="form.slow_speed_threshold_kbps"
-              :min="1"
+              v-model="form.download_speed_limit"
+              :min="0"
               :max="102400"
               :step="16"
               controls-position="right"
-              style="width: 160px"
             />
-            <span class="auto-manage-desc">KB/s，低于该速率视为低速</span>
-          </div>
-        </el-form-item>
-        <el-form-item label="宽限期" prop="slow_speed_grace_seconds">
-          <div class="auto-manage-field">
-            <el-input-number
-              v-model="form.slow_speed_grace_seconds"
-              :min="1"
-              :max="600"
-              :step="1"
-              controls-position="right"
-              style="width: 160px"
-            />
-            <span class="auto-manage-desc">秒，持续低速达到该时长后触发</span>
-          </div>
-        </el-form-item>
-      </template>
+            <span class="settings-hint">KB/s，0 为不限速</span>
+          </el-form-item>
 
-      <!-- 下载选项 -->
-      <el-form-item label="下载选项">
-        <div class="checkbox-group">
-          <el-checkbox v-model="form.auto_merge" label="自动合并音视频" />
-          <el-checkbox v-model="form.delete_temp_files" label="下载完成后删除临时文件" />
+          <el-form-item class="full-width">
+            <el-switch v-model="form.slow_speed_auto_pause" active-text="低速自动暂停" aria-label="低速自动暂停" />
+            <span class="settings-hint">持续低速时暂停下载，并将任务移至队尾。</span>
+          </el-form-item>
+
+          <template v-if="form.slow_speed_auto_pause">
+            <el-form-item label="低速阈值（KB/s）" prop="slow_speed_threshold_kbps">
+              <el-input-number
+                v-model="form.slow_speed_threshold_kbps"
+                :min="1"
+                :max="102400"
+                :step="16"
+                controls-position="right"
+              />
+            </el-form-item>
+            <el-form-item label="宽限期（秒）" prop="slow_speed_grace_seconds">
+              <el-input-number
+                v-model="form.slow_speed_grace_seconds"
+                :min="1"
+                :max="600"
+                controls-position="right"
+              />
+            </el-form-item>
+          </template>
         </div>
-      </el-form-item>
-      
-      <!-- 代理设置 -->
-      <el-form-item label="启用代理">
-        <el-switch v-model="form.proxy_enabled" />
-      </el-form-item>
-      
-      <div v-if="form.proxy_enabled" class="proxy-settings">
-        <el-form-item label="代理地址" prop="proxy_url">
-          <el-input
-            v-model="form.proxy_url"
-            placeholder="例如：http://127.0.0.1:7890"
-            clearable
-          />
+      </fieldset>
+
+      <fieldset class="settings-group">
+        <legend>网络</legend>
+        <el-form-item>
+          <el-switch v-model="form.proxy_enabled" active-text="启用代理" aria-label="启用代理" />
         </el-form-item>
-      </div>
-      
-      <!-- 表单操作 -->
-      <el-form-item class="form-actions">
+        <el-form-item v-if="form.proxy_enabled" label="代理地址" prop="proxy_url">
+          <el-input v-model="form.proxy_url" placeholder="例如：http://127.0.0.1:7890" clearable />
+        </el-form-item>
+      </fieldset>
+
+      <el-form-item class="dialog-form-actions">
         <el-button @click="handleCancel">取消</el-button>
-        <el-button type="primary" @click="handleSubmit" :loading="submitting">
-          保存设置
-        </el-button>
+        <el-button type="primary" @click="handleSubmit" :loading="submitting">保存设置</el-button>
       </el-form-item>
     </el-form>
   </div>
@@ -244,56 +210,57 @@ onMounted(async () => {
 </script>
 
 <style lang="scss" scoped>
-.settings-form {
-  padding: 8px 0;
-  
-  .checkbox-group {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    
-    .el-checkbox {
-      margin-right: 0;
-    }
-  }
-  
-.speed-limit-field {
-    display: flex;
-    align-items: center;
-    gap: 10px;
+.settings-group {
+  min-width: 0;
+  padding: 8px 14px 0;
+  margin-bottom: 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
 
-    .speed-limit-unit {
-      font-size: 12px;
-      color: #909399;
-    }
+  legend {
+    padding-inline: 6px;
+    color: var(--ink);
+    font-size: 14px;
+    font-weight: 700;
   }
 
-.auto-manage-field {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-
-    .auto-manage-desc {
-      font-size: 12px;
-      color: #909399;
-    }
+  :deep(.el-form-item) {
+    margin-bottom: 14px;
   }
 
-  .proxy-settings {
-    margin-left: 120px;
-    padding: 16px;
-    background-color: #f5f5f5;
-    border-radius: 4px;
-    margin-bottom: 16px;
+  :deep(.el-select),
+  :deep(.el-input-number) {
+    width: min(100%, 156px);
   }
-  
-  .form-actions {
-    margin-top: 24px;
-    text-align: right;
-    
-    .el-button {
-      min-width: 100px;
-    }
+}
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 18px;
+
+  .full-width {
+    grid-column: 1 / -1;
+  }
+}
+
+.checkbox-group {
+  display: grid;
+
+  :deep(.el-checkbox) {
+    margin-inline-end: 0;
+  }
+}
+
+.settings-hint {
+  margin-inline-start: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+@media (max-width: 500px) {
+  .settings-grid {
+    grid-template-columns: 1fr;
   }
 }
 </style>

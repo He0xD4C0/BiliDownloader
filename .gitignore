@@ -2,9 +2,8 @@
 node_modules/
 
 # Build output
-dist-electron/
-frontend/dist/
-node_modules/.vite/
+/dist-electron/
+/frontend/dist/
 *.blockmap
 *.dmg
 *.AppImage
@@ -24,12 +23,21 @@ frontend/src/components.d.ts
 .env.*
 !.env.example
 *.local
-.claude/settings.local.json
+.npmrc
+*.pfx
+*.p12
+*.pem
+*.key
 
 # Runtime data and downloads
 application-state.json
-application-state.json.tmp
+application-state.json.*
 BiliDownloader/
+/downloads/
+/user-data/
+cookies.json
+cookies.txt
+*.part.mp4
 
 # Logs and test output
 *.log
@@ -50,5 +58,3 @@ Desktop.ini
 *.tmp
 *.temp
 .cache/
-
-.claude/

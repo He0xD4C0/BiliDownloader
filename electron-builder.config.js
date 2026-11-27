@@ -1,7 +1,6 @@
 module.exports = {
   appId: 'com.bilidownloader.app',
   productName: 'BiliDownloader',
-  copyright: 'Copyright 2026 He0xD4C0',
   
   directories: {
     output: 'dist-electron',
@@ -73,11 +72,7 @@ module.exports = {
     ]
   },
   
-  publish: {
-    provider: 'github',
-    owner: 'He0xD4C0',
-    repo: 'BiliDownloader'
-  },
+  publish: null,
   
   npmRebuild: false,
   

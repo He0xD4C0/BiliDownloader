@@ -9,6 +9,8 @@
       :step="16"
       size="small"
       controls-position="right"
+      aria-label="单线程限速（KB/s）"
+      :disabled="saving"
       @change="handleChange"
     />
     <span class="speed-limit-unit">KB/s</span>
@@ -31,7 +33,8 @@ const handleChange = async (value: number | undefined) => {
   if (saving.value) return
   const next = Math.max(0, Math.min(102400, Math.round(Number(value) || 0)))
 
-  if (next === props.modelValue) return
+  const previous = props.modelValue
+  if (next === previous) return
 
   saving.value = true
   emit('update:modelValue', next)
@@ -42,7 +45,7 @@ const handleChange = async (value: number | undefined) => {
   } catch (error) {
     console.error('保存单线程限速失败:', error)
     ElMessage.error('保存单线程限速失败')
-    emit('update:modelValue', props.modelValue)
+    emit('update:modelValue', previous)
   } finally {
     saving.value = false
   }
@@ -57,13 +60,13 @@ const handleChange = async (value: number | undefined) => {
 
   .speed-limit-label {
     font-size: 13px;
-    color: #606266;
+    color: var(--muted);
     white-space: nowrap;
   }
 
   .speed-limit-unit {
     font-size: 12px;
-    color: #909399;
+    color: var(--muted);
     white-space: nowrap;
   }
 }

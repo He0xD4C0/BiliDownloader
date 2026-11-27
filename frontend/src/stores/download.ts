@@ -8,6 +8,7 @@ export interface DownloadTask {
   task_id: string
   title: string
   uploader?: string | null
+  cover_url?: string | null
   bvid: string | null
   aid: number | null
   cid: number | null
@@ -55,9 +56,7 @@ export interface DownloadSettings {
 export const useDownloadStore = defineStore('download', () => {
   // 状态
   const tasks: Ref<DownloadTask[]> = ref([])
-  const activeTasks: Ref<number> = ref(0)
   const maxConcurrentDownloads: Ref<number> = ref(4)
-  const downloadSpeed: Ref<number> = ref(0)
   const stats: Ref<DownloadStats | null> = ref(null)
   const settings: Ref<DownloadSettings> = ref({
     default_download_path: './downloads',
@@ -82,6 +81,14 @@ export const useDownloadStore = defineStore('download', () => {
   const downloadingTasks = computed(() => 
     tasks.value.filter(task => task.status === 'downloading')
   )
+
+  const activeTasks = computed(() =>
+    downloadingTasks.value.length + tasks.value.filter(task => task.status === 'merging').length
+  )
+
+  const downloadSpeed = computed(() =>
+    downloadingTasks.value.reduce((total, task) => total + (task.speed ?? 0), 0)
+  )
   
   const completedTasks = computed(() => 
     tasks.value.filter(task => task.status === 'completed')
@@ -96,7 +103,8 @@ export const useDownloadStore = defineStore('download', () => {
   )
   
   // 方法
-  const fetchTasks = async (status?: string, page: number = 1, pageSize: number = 50) => {
+  // The workbench filters, pages, and performs bulk operations on the full local queue.
+  const fetchTasks = async (status?: string, page: number = 1, pageSize: number = Number.MAX_SAFE_INTEGER) => {
     try {
       const params: any = { page, page_size: pageSize }
       if (status) params.status = status
@@ -136,32 +144,12 @@ export const useDownloadStore = defineStore('download', () => {
     delete_temp_files?: boolean
   }) => {
     try {
-      const response = await api.post('/download/start', downloadData)
-      
-      // 添加到任务列表
-      tasks.value.unshift({
-        ...response,
-        // 添加一些默认值
-        id: Date.now(),
-        title: '新下载任务',
-        bvid: downloadData.bvid || null,
-        aid: downloadData.aid || null,
-        cid: downloadData.cid,
-        page: 1,
-        quality: downloadData.quality?.toString() || '80',
-        format: 'mp4',
-        file_path: null,
-        file_size: null,
-        downloaded_size: 0,
-        speed: null,
-        error_message: null,
-        error_trace: null,
-        created_at: new Date().toISOString(),
-        updated_at: null,
-        started_at: null,
-        completed_at: null
-      })
-      
+      const response = await api.post<DownloadTask>('/download/start', downloadData)
+      // The Electron update can arrive before the request resolves.
+      if (!tasks.value.some(task => task.task_id === response.task_id)) {
+        tasks.value.unshift(response)
+      }
+
       return response
     } catch (error) {
       console.error('开始下载失败:', error)
@@ -180,13 +168,11 @@ export const useDownloadStore = defineStore('download', () => {
     delete_temp_files?: boolean
   }) => {
     try {
-      const response = await api.post('/download/start-batch', downloadData)
+      const response = await api.post<{ message?: string; tasks: DownloadTask[] }>('/download/start-batch', downloadData)
 
       // 批量创建的任务逐个插入任务列表（倒序 unshift，保证 P1 在最前）
-      const created = response.tasks || []
-      for (let i = created.length - 1; i >= 0; i--) {
-        tasks.value.unshift(created[i])
-      }
+      const existingIds = new Set(tasks.value.map(task => task.task_id))
+      tasks.value.unshift(...response.tasks.filter(task => !existingIds.has(task.task_id)))
 
       return response
     } catch (error) {

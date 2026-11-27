@@ -3,6 +3,7 @@ const path = require('path')
 const os = require('os')
 const fs = require('fs')
 const { ApplicationService } = require('./application-service')
+const { bugs } = require('../package.json')
 const isDev = !app.isPackaged
 
 function configureApplicationPaths() {
@@ -104,7 +105,7 @@ function createTray() {
     {
       label: '暂停所有下载',
       click: () => {
-        mainWindow?.webContents.send('pause-all-downloads')
+        applicationService.pauseAllDownloads()
       }
     },
     { type: 'separator' },
@@ -199,8 +200,9 @@ function createApplicationMenu() {
         },
         {
           label: '报告问题',
+          visible: Boolean(bugs?.url),
           click: () => {
-            shell.openExternal('https://github.com/He0xD4C0/BiliDownloader/issues')
+            shell.openExternal(bugs.url)
           }
         }
       ]

@@ -2,13 +2,6 @@
 
 BiliDownloader 是一个用于解析和下载 B 站视频的独立 Electron 桌面应用。Vue 负责界面展示，视频解析、账号状态、下载任务、文件系统和本地持久化均由 Electron 主进程统一管理。
 
-<table>
-  <tr>
-    <td><img width="1200" height="800" alt="e8532cf24f254c8d9d6cff7638da1f86" src="https://github.com/user-attachments/assets/fa7e7769-1d99-4dcd-a63f-b1082ebe9aa2" /></td>
-    <td><img width="1200" height="800" alt="bef1021349c1ed07b4c98a1f53ca247c" src="https://github.com/user-attachments/assets/9a7564c2-de6f-411b-8465-938fcef8d7f5" /></td>
-  </tr>
-</table>
-
 本项目不需要 Python、FastAPI、本机 API 端口或浏览器插件。
 
 ## 功能概览
@@ -23,7 +16,7 @@ BiliDownloader 是一个用于解析和下载 B 站视频的独立 Electron 桌�
 - 最大并行下载数默认为 4，可在下载任务表格上方直接调整并立即保存；调低上限会自动暂停多余任务，调高上限会自动开始排队任务
 - 支持单线程限速设置（KB/s，0=不限速）：可在表格上方或设置中调整，对运行中的下载即时生效
 - 表格上方提供全量/选中操作栏：全部开始、全部暂停、全部暂停并删除、删除已完成，以及按勾选任务批量操作
-- 低速自动暂停：下载速率持续低于阈值时自动暂停并移至队尾（等待中）重试；阈值/宽限期可配置，可在设置中开关
+- 低速自动暂停：持续低速且另有任务排队时，当前任务移至队尾重试一次；阈值、宽限期和开关均可在设置中调整
 - 下载进度通过 Electron IPC 实时推送
 - 本地保存应用设置和任务状态
 - 使用 Electron `safeStorage` 加密保存 B 站登录凭证
@@ -113,6 +106,8 @@ dist-electron/
 ```
 
 > 跨平台产物通常应在对应操作系统上构建。Windows 和 Linux 的签名、安装器及系统依赖也需要在目标构建环境中验证。
+
+构建只生成本地产物。发布者可在 `package.json` 的 `bugs.url` 中配置「报告问题」菜单的公开地址。
 
 ## 测试
 

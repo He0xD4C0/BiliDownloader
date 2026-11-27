@@ -9,6 +9,8 @@
       :step="1"
       size="small"
       controls-position="right"
+      aria-label="并行下载数"
+      :disabled="saving"
       @change="handleChange"
     />
   </div>
@@ -32,7 +34,8 @@ const handleChange = async (value: number | undefined) => {
   const next = Math.max(1, Math.min(upper, Math.round(Number(value) || 4)))
 
   // 值未变化时避免重复保存
-  if (next === props.modelValue) return
+  const previous = props.modelValue
+  if (next === previous) return
 
   saving.value = true
   // 先乐观更新界面，再持久化
@@ -44,7 +47,7 @@ const handleChange = async (value: number | undefined) => {
   } catch (error) {
     console.error('保存最大并行下载数失败:', error)
     ElMessage.error('保存最大并行下载数失败')
-    emit('update:modelValue', props.modelValue)
+    emit('update:modelValue', previous)
   } finally {
     saving.value = false
   }
@@ -59,7 +62,7 @@ const handleChange = async (value: number | undefined) => {
 
   .concurrency-label {
     font-size: 13px;
-    color: #606266;
+    color: var(--muted);
     white-space: nowrap;
   }
 }
