@@ -7,7 +7,6 @@ const path = require('path')
 const crypto = require('crypto')
 const { spawn } = require('child_process')
 const { setTimeout: delay } = require('timers/promises')
-const ffmpegStaticPath = require('ffmpeg-static')
 
 const QUEUED_OR_ACTIVE = new Set(['pending', 'downloading', 'merging'])
 const TASK_ACTIONS = {
@@ -165,10 +164,14 @@ function parseCookiePair(value, cookies) {
 }
 
 function resolveFfmpegPath() {
-  // On Windows ARM64 the package includes the x64 build, which runs under emulation.
-  const binary = ffmpegStaticPath || (app.isPackaged && process.platform === 'win32' && process.arch === 'arm64'
-    ? path.join(path.dirname(require.resolve('ffmpeg-static/package.json')), 'ffmpeg.exe')
-    : null)
+  if (process.platform === 'win32' && (app.isPackaged || process.arch === 'arm64')) {
+    const binary = app.isPackaged
+      ? path.join(process.resourcesPath, 'ffmpeg', 'ffmpeg.exe')
+      : path.join(__dirname, '..', 'dist-electron', 'ffmpeg-win-arm64', 'ffmpeg.exe')
+    if (!fs.existsSync(binary)) throw new Error(`未找到 FFmpeg: ${binary}`)
+    return binary
+  }
+  const binary = require('ffmpeg-static')
   if (!binary) throw new Error('未找到 FFmpeg，可执行文件未正确安装')
   return app.isPackaged ? binary.replace('app.asar', 'app.asar.unpacked') : binary
 }

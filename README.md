@@ -109,7 +109,9 @@ dist-electron/
 
 构建只生成本地产物。发布者可在 `package.json` 的 `bugs.url` 中配置「报告问题」菜单的公开地址。
 
-在 GitHub Actions 从 `main` 运行 `Release` 工作流，可将通过验证的 Windows x64 和 ARM64 便携包发布到 `package.json` 对应的版本。Windows ARM64 版合并音视频时需要系统支持 x64 仿真。
+Windows ARM64 版使用原生 FFmpeg 合并 DASH 音视频。要在本地打包 ARM64 版，先在 x64 Linux 或 WSL 的仓库根目录运行 `bash scripts/build-win-arm64-ffmpeg.sh`，再在 Windows 打包。原生 ARM64 Windows 上安装开发依赖时，先将 PowerShell 环境变量 `FFMPEG_BIN` 指向该脚本生成的 `dist-electron/ffmpeg-win-arm64/ffmpeg.exe` 的绝对路径，再运行 `npm ci`。
+
+GitHub Actions 的 `Release` 工作流默认只构建和验收。通过 `main` 分支运行时，勾选 `publish` 可发布 `package.json` 对应的版本。工作流分别在 x64 和 ARM64 Windows 上验证便携包中的 DASH 合并。发布附件包含 ARM64 FFmpeg 的对应源码与构建脚本，包内许可证位于 `resources/ffmpeg/`。
 
 ## 测试
 

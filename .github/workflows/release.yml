@@ -2,6 +2,11 @@ name: Release
 
 on:
   workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the release after verification
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -36,8 +41,29 @@ jobs:
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
           echo "value=$version" >> "$GITHUB_OUTPUT"
 
+  build_ffmpeg:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: bash scripts/build-win-arm64-ffmpeg.sh dist-electron --with-x64-probe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-ffmpeg-tools
+          path: |
+            dist-electron/ffmpeg-win-arm64/*
+            dist-electron/ffmpeg-validation-*/ffprobe.exe
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-arm64-source
+          path: dist-electron/ffmpeg-*-win-arm64-source.tar.xz
+          if-no-files-found: error
+
   package:
-    needs: verify
+    needs: [verify, build_ffmpeg]
     runs-on: windows-2022
     strategy:
       matrix:
@@ -51,7 +77,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - run: npm ci
+      - run: |
+          if ($env:ARCH -eq 'arm64') { npm ci --ignore-scripts } else { npm ci }
         env:
           ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
       - name: Install target Electron runtime
@@ -59,46 +86,103 @@ jobs:
           npm_config_arch: ${{ matrix.arch }}
         run: node node_modules/electron/install.js
       - run: npm run build:frontend
+      - uses: actions/download-artifact@v4
+        if: matrix.arch == 'arm64'
+        with:
+          name: windows-ffmpeg-tools
+          path: dist-electron
       - name: Build Windows portable package
         run: npm exec -- electron-builder --win portable "--$env:ARCH" --publish never --config.electronDist=node_modules/electron/dist
-      - name: Verify bundled executables
-        shell: pwsh
-        run: |
-          $directory = if ($env:ARCH -eq 'arm64') { 'win-arm64-unpacked' } else { 'win-unpacked' }
-          $appDirectory = Join-Path dist-electron $directory
-          $appPath = Join-Path $appDirectory 'BiliDownloader.exe'
-          $bytes = [IO.File]::ReadAllBytes((Resolve-Path -LiteralPath $appPath))
-          $peOffset = [BitConverter]::ToInt32($bytes, 0x3c)
-          $machine = [BitConverter]::ToUInt16($bytes, $peOffset + 4)
-          $expectedMachine = if ($env:ARCH -eq 'arm64') { 0xaa64 } else { 0x8664 }
-          if ($machine -ne $expectedMachine) { throw "Unexpected executable architecture: $machine" }
-          $ffmpeg = Join-Path $appDirectory 'resources/app.asar.unpacked/node_modules/ffmpeg-static/ffmpeg.exe'
-          & $ffmpeg -version
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Prepare DASH samples
+        if: matrix.arch == 'x64'
+        run: node test/windows-package-smoke.js fixtures dist-electron/win-unpacked/resources/ffmpeg/ffmpeg.exe "$env:RUNNER_TEMP/bili-dash-fixtures"
+      - uses: actions/upload-artifact@v4
+        if: matrix.arch == 'x64'
+        with:
+          name: dash-fixtures
+          path: ${{ runner.temp }}/bili-dash-fixtures
+          if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
           name: windows-${{ matrix.arch }}
           path: dist-electron/BiliDownloader-${{ needs.verify.outputs.version }}-windows-${{ matrix.arch }}.exe
           if-no-files-found: error
 
-  publish:
+  test_package:
     needs: [verify, package]
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - arch: x64
+            runner: windows-2022
+            archive: app-64.7z
+          - arch: arm64
+            runner: windows-11-arm
+            archive: app-arm64.7z
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          architecture: ${{ matrix.arch }}
+      - run: npm ci --ignore-scripts
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-${{ matrix.arch }}
+          path: ${{ runner.temp }}/bili-portable
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-ffmpeg-tools
+          path: ${{ runner.temp }}/bili-ffmpeg-tools
+      - uses: actions/download-artifact@v4
+        with:
+          name: dash-fixtures
+          path: ${{ runner.temp }}/bili-dash-fixtures
+      - name: Verify native DASH merging in portable package
+        shell: pwsh
+        env:
+          ARCH: ${{ matrix.arch }}
+          VERSION: ${{ needs.verify.outputs.version }}
+          APP_ARCHIVE: ${{ matrix.archive }}
+        run: |
+          $sevenZip = (Get-Command 7z.exe -ErrorAction SilentlyContinue).Source
+          if (!$sevenZip) { $sevenZip = Join-Path $env:ProgramFiles '7-Zip/7z.exe' }
+          $packageDir = Join-Path $env:RUNNER_TEMP 'bili-portable'
+          $portable = Join-Path $packageDir "BiliDownloader-$env:VERSION-windows-$env:ARCH.exe"
+          & $sevenZip e -tNsis $portable "-o$packageDir" -y -r $env:APP_ARCHIVE
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $appDir = Join-Path $packageDir 'app'
+          & $sevenZip x -t7z (Join-Path $packageDir $env:APP_ARCHIVE) "-o$appDir" -y
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $ffprobe = Join-Path $env:RUNNER_TEMP "bili-ffmpeg-tools/ffmpeg-validation-$env:ARCH/ffprobe.exe"
+          node test/windows-package-smoke.js verify $appDir "$env:RUNNER_TEMP/bili-dash-fixtures" $ffprobe $env:ARCH
+
+  publish:
+    if: inputs.publish
+    needs: [verify, package, test_package]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
       - uses: actions/download-artifact@v4
         with:
-          pattern: windows-*
+          pattern: windows-*64
           path: release-assets
           merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: ffmpeg-arm64-source
+          path: release-assets
       - name: Publish GitHub release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.verify.outputs.version }}
         run: |
-          assets=("release-assets/BiliDownloader-$VERSION-windows-x64.exe" "release-assets/BiliDownloader-$VERSION-windows-arm64.exe")
+          assets=("release-assets/BiliDownloader-$VERSION-windows-x64.exe" "release-assets/BiliDownloader-$VERSION-windows-arm64.exe" release-assets/ffmpeg-*-win-arm64-source.tar.xz)
           for asset in "${assets[@]}"; do
             test -s "$asset"
           done
