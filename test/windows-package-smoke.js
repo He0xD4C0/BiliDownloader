@@ -50,8 +50,8 @@ async function verifyPackage(appDirectory, fixtures, ffprobe, arch) {
   verifyPeArchitecture(ffprobe, arch)
   assert(fs.existsSync(path.join(resources, 'ffmpeg', arch === 'arm64' ? 'COPYING.LGPLv2.1' : 'ffmpeg.exe.LICENSE')))
   const archive = path.join(resources, 'app.asar')
-  assert(!asar.listPackage(archive).some(file => /[\\/]ffmpeg-static[\\/]ffmpeg\.exe$/i.test(file)),
-    'Portable package contains an additional FFmpeg executable')
+  assert(!asar.listPackage(archive).some(file => /[\\/]ff(?:mpeg|probe)\.exe$/i.test(file)),
+    'Application archive contains an additional FFmpeg or FFprobe executable')
   const shippedService = asar.extractFile(archive, 'electron/application-service.js').toString('utf8')
   assert.equal(shippedService.replaceAll('\r\n', '\n'), fs.readFileSync(SERVICE_PATH, 'utf8').replaceAll('\r\n', '\n'))
 
