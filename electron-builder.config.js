@@ -2,7 +2,6 @@ const fs = require('node:fs')
 const path = require('node:path')
 const { Arch } = require('builder-util')
 const { verifyPeArchitecture } = require('./scripts/windows-pe')
-const appFiles = ['electron/**', 'frontend/dist/**']
 
 module.exports = {
   appId: 'com.bilidownloader.app',
@@ -14,7 +13,8 @@ module.exports = {
   },
   
   files: [
-    ...appFiles,
+    'electron/**',
+    'frontend/dist/**',
     'node_modules/ffmpeg-static/**'
   ],
 
@@ -43,7 +43,8 @@ module.exports = {
   },
   
   win: {
-    files: [...appFiles, '!node_modules/ffmpeg-static/**'],
+    // A positive entry keeps electron-builder from defaulting to all files for this matcher.
+    files: ['package.json', '!node_modules/ffmpeg-static/**'],
     extraResources: [{
       from: 'dist-electron/ffmpeg-win-${arch}',
       to: 'ffmpeg',
